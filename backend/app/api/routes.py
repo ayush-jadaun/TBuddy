@@ -9,6 +9,7 @@ from app.models.response import (
     ErrorResponse
 )
 from app.agents.weather_agent import WeatherAgent
+from app.agents.maps_agent import MapsAgent
 from app.core.state import create_initial_state
 import logging
 
@@ -19,6 +20,7 @@ router = APIRouter()
 
 # Initialize all agents
 weather_agent = WeatherAgent()
+maps_agent = MapsAgent()
 
 
 
@@ -55,6 +57,67 @@ async def get_weather(request: WeatherRequest):
             error=f"Failed to get weather data: {str(e)}"
         )
 
+@router.post("/route")
+async def get_route(origin: str, destination: str, transport_mode: str = "driving"):
+    """Get route information between two locations"""
+    try:
+        logger.info(f"Route request: {origin} to {destination} by {transport_mode}")
+        
+        route_data = await maps_agent.maps_service.get_route_between_locations(
+            origin=origin,
+            destination=destination,
+            transport_mode=transport_mode
+        )
+        
+        if route_data:
+            return {
+                "success": True,
+                "data": {
+                    "distance": route_data.distance,
+                    "duration": route_data.duration,
+                    "transport_mode": route_data.transport_mode,
+                    "steps": route_data.steps[:5],  # First 5 steps only
+                    "traffic_info": route_data.traffic_info
+                }
+            }
+        else:
+            return {
+                "success": False,
+                "error": "Failed to calculate route"
+            }
+        
+    except Exception as e:
+        logger.error(f"Route request failed: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Failed to get route data: {str(e)}"
+        }
+
+
+@router.get("/route/compare/{origin}/{destination}")
+async def compare_routes(origin: str, destination: str):
+    """Compare different transportation modes for a journey"""
+    try:
+        logger.info(f"Route comparison request: {origin} to {destination}")
+        
+        comparison = await maps_agent.compare_transport_modes(origin, destination)
+        
+        return {
+            "success": True,
+            "origin": origin,
+            "destination": destination,
+            "routes": comparison
+        }
+        
+    except Exception as e:
+     
+        logger.error(f"Route comparison failed: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Failed to compare routes: {str(e)}"
+        }
+
+
 @router.post("/plan", response_model=TravelPlanResponse)
 async def create_travel_plan(request: TravelPlanRequest):
     """Create a comprehensive travel plan with all agents"""
@@ -74,6 +137,7 @@ async def create_travel_plan(request: TravelPlanRequest):
         
         # Process with all agents sequentially
         state = await weather_agent.process(state)
+        state = await maps_agent.process(state)
         
         # Calculate processing time
         processing_time = time.time() - start_time
@@ -126,6 +190,11 @@ async def _generate_complete_trip_summary(state):
         summary_parts.append(
             f"Weather: {avg_temp_min:.1f}°C - {avg_temp_max:.1f}°C"
         )
+     # Add route summary
+    if route_data:
+        summary_parts.append(
+            f"Route: {route_data.distance} in {route_data.duration} by {route_data.transport_mode}"
+        )
     
     # Add agent messages
     if messages:
@@ -168,7 +237,8 @@ async def test_weather_service(location: str, dates: str = None):
         }
 
 
-
+@router.get("/test-route/{origin}/{destination}")
+async def test_route_service(origin: str, destination: str, mode: str = "driving"):
     """Test endpoint for route service"""
     try:
         route_data = await maps_agent.maps_service.get_route_between_locations(

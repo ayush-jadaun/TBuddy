@@ -92,7 +92,8 @@ async def root():
         "docs": "/docs",
         "status": "active",
         "agents": {
-            "weather": "Sky Gazer - Weather forecasting and analysis"
+            "weather": "Sky Gazer - Weather forecasting and analysis",
+              "maps": "Trailblazer - Route planning and navigation"
         }
     }
 
@@ -110,11 +111,18 @@ async def status():
                 "service": "OpenWeatherMap",
                 "capabilities": ["weather forecasts", "climate analysis", "travel recommendations"]
             },
+            "maps": {
+                "name": "Trailblazer", 
+                "status": "active",
+                "service": "OpenRouteService",
+                "capabilities": ["route planning", "transportation comparison", "navigation guidance"]
+            },
           
         },
         "endpoints": {
             "weather": "/api/v1/weather",
-            "routes": "/api/v1/route", 
+            "routes": "/api/v1/route",
+             "route_comparison": "/api/v1/route/compare/{origin}/{destination}", 
             "full_plan": "/api/v1/plan",
             "health": "/api/v1/health"
         }
