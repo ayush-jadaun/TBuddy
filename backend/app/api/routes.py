@@ -10,6 +10,8 @@ from app.models.response import (
 )
 from app.agents.weather_agent import WeatherAgent
 from app.agents.maps_agent import MapsAgent
+from app.agents.budget_agent import EnhancedBudgetAgent
+from app.agents.itinerary_agent import EnhancedItineraryAgent
 from app.core.state import create_initial_state
 import logging
 
@@ -21,6 +23,8 @@ router = APIRouter()
 # Initialize all agents
 weather_agent = WeatherAgent()
 maps_agent = MapsAgent()
+budget_agent = EnhancedBudgetAgent()
+itinerary_agent = EnhancedItineraryAgent()
 
 
 
@@ -117,6 +121,106 @@ async def compare_routes(origin: str, destination: str):
             "error": f"Failed to compare routes: {str(e)}"
         }
 
+@router.post("/budget")
+async def get_budget_estimate(
+    origin: str, 
+    destination: str, 
+    travel_dates: str,  # comma-separated dates
+    travelers: int = 1,
+    budget_category: str = "mid-range"
+):
+    """Get budget estimate for a trip"""
+    try:
+        logger.info(f"Budget request: {origin} to {destination}, {travelers} travelers")
+        
+        dates_list = travel_dates.split(",")
+        
+        # Create minimal state for budget calculation
+        state = create_initial_state(
+            destination=destination,
+            origin=origin,
+            travel_dates=dates_list,
+            travelers_count=travelers,
+            budget_range=budget_category
+        )
+        
+        # Get route info for accurate transport costs
+        route_info = await maps_agent.maps_service.get_route_between_locations(origin, destination)
+        state['route_data'] = route_info
+        
+        # Calculate budget
+        state = await budget_agent.process(state)
+        
+        budget_data = state.get('budget_data')
+        if budget_data:
+            return {
+                "success": True,
+                "budget": {
+                    "total": budget_data.total,
+                    "transportation": budget_data.transportation,
+                    "accommodation": budget_data.accommodation,
+                    "food": budget_data.food,
+                    "activities": budget_data.activities,
+                    "currency": budget_data.currency,
+                    "breakdown": budget_agent.format_budget_summary(budget_data)
+                }
+            }
+        else:
+            return {"success": False, "error": "Budget calculation failed"}
+        
+    except Exception as e:
+        logger.error(f"Budget request failed: {str(e)}")
+        return {"success": False, "error": f"Failed to calculate budget: {str(e)}"}
+
+
+@router.post("/itinerary")
+async def create_itinerary(
+    destination: str,
+    travel_dates: str,  # comma-separated dates
+    travelers: int = 1
+):
+    """Create a detailed itinerary"""
+    try:
+        logger.info(f"Itinerary request: {destination}, {travelers} travelers")
+        
+        dates_list = travel_dates.split(",")
+        
+        # Create state for itinerary planning
+        state = create_initial_state(
+            destination=destination,
+            origin="",  # Not needed for itinerary
+            travel_dates=dates_list,
+            travelers_count=travelers
+        )
+        
+        # Get weather data to optimize itinerary
+        state = await weather_agent.process(state)
+        
+        # Create itinerary
+        state = await itinerary_agent.process(state)
+        
+        itinerary_data = state.get('itinerary_data')
+        if itinerary_data:
+            return {
+                "success": True,
+                "itinerary": [
+                    {
+                        "day": day.day,
+                        "date": day.date,
+                        "activities": day.activities,
+                        "notes": day.notes,
+                        "estimated_cost": day.estimated_cost
+                    } for day in itinerary_data
+                ],
+                "summary": itinerary_agent.format_itinerary_summary(itinerary_data)
+            }
+        else:
+            return {"success": False, "error": "Itinerary creation failed"}
+        
+    except Exception as e:
+        logger.error(f"Itinerary request failed: {str(e)}")
+        return {"success": False, "error": f"Failed to create itinerary: {str(e)}"}
+
 
 @router.post("/plan", response_model=TravelPlanResponse)
 async def create_travel_plan(request: TravelPlanRequest):
@@ -138,6 +242,8 @@ async def create_travel_plan(request: TravelPlanRequest):
         # Process with all agents sequentially
         state = await weather_agent.process(state)
         state = await maps_agent.process(state)
+        state = await budget_agent.process(state)
+        state = await itinerary_agent.process(state)
         
         # Calculate processing time
         processing_time = time.time() - start_time
@@ -195,6 +301,14 @@ async def _generate_complete_trip_summary(state):
         summary_parts.append(
             f"Route: {route_data.distance} in {route_data.duration} by {route_data.transport_mode}"
         )
+      # Add budget summary
+    if budget_data:
+        summary_parts.append(f"Total Budget: ₹{budget_data.total:,.0f}")
+    
+    if itinerary_data:
+        total_activities = sum(len(day.activities) for day in itinerary_data)
+        summary_parts.append(f"Itinerary: {len(itinerary_data)} days, {total_activities} activities")
+    
     
     # Add agent messages
     if messages:

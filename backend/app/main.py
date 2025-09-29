@@ -117,12 +117,19 @@ async def status():
                 "service": "OpenRouteService",
                 "capabilities": ["route planning", "transportation comparison", "navigation guidance"]
             },
+            "budget": {
+                "name": "Quartermaster",
+                "status": "active",
+                "service": "Internal Cost Database",
+                "capabilities": ["budget estimation", "cost breakdown", "expense planning"]
+            },
           
         },
         "endpoints": {
             "weather": "/api/v1/weather",
             "routes": "/api/v1/route",
-             "route_comparison": "/api/v1/route/compare/{origin}/{destination}", 
+            "budget": "/api/v1/budget",
+            "route_comparison": "/api/v1/route/compare/{origin}/{destination}", 
             "full_plan": "/api/v1/plan",
             "health": "/api/v1/health"
         }
