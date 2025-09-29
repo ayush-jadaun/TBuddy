@@ -97,3 +97,71 @@ def create_initial_state(
         errors=[],
         trip_summary=None
     )
+
+
+
+
+# Add this to your app/core/state.py file
+
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class EventInfo:
+    """Event information data class"""
+    name: str
+    date: str  # YYYY-MM-DD format
+    time: str  # HH:MM format
+    venue: str
+    address: str
+    category: str  # music, sports, arts, theatre, etc.
+    price_min: Optional[float] = None
+    price_max: Optional[float] = None
+    currency: str = "USD"
+    description: str = ""
+    url: str = ""
+    image_url: str = ""
+    
+    def dict(self):
+        """Convert to dictionary"""
+        return {
+            "name": self.name,
+            "date": self.date,
+            "time": self.time,
+            "venue": self.venue,
+            "address": self.address,
+            "category": self.category,
+            "price_min": self.price_min,
+            "price_max": self.price_max,
+            "currency": self.currency,
+            "description": self.description,
+            "url": self.url,
+            "image_url": self.image_url
+        }
+    
+    @property
+    def price_range(self) -> str:
+        """Get formatted price range"""
+        if self.price_min is None and self.price_max is None:
+            return "Price TBA"
+        elif self.price_min == 0:
+            return "Free"
+        elif self.price_min == self.price_max:
+            return f"{self.currency} {self.price_min}"
+        else:
+            return f"{self.currency} {self.price_min}-{self.price_max}"
+    
+    @property
+    def datetime_str(self) -> str:
+        """Get formatted date and time"""
+        if self.time:
+            return f"{self.date} at {self.time}"
+        return self.date
+    
+    def is_free(self) -> bool:
+        """Check if event is free"""
+        return self.price_min == 0
+    
+    def is_on_date(self, date: str) -> bool:
+        """Check if event is on specific date"""
+        return self.date == date

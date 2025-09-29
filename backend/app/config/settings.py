@@ -10,6 +10,12 @@ class Settings(BaseSettings):
     
     # Weather API Configuration
     openweather_api_key: str
+
+    openroute_api_key: str
+
+    openweb_ninja_api_key: Optional[str] = None 
+    openweb_ninja_base_url: str = "https://api.openwebninja.com/realtime-events-data/search-events"
+    openweb_ninja_timeout: float = 30.0
     
     
     # App Configuration
@@ -22,6 +28,12 @@ class Settings(BaseSettings):
     model_name: str = "gemini-2.5-pro"
     temperature: float = 0.1
     max_tokens: Optional[int] = None
+
+    # Event Service Configuration
+    events_fallback_enabled: bool = True
+    events_cache_ttl: int = 3600  # 1 hour cache
+    events_max_results: int = 100
+    events_default_days_ahead: int = 30
     
     class Config:
         env_file = ".env"

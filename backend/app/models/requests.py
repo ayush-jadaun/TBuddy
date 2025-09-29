@@ -64,3 +64,171 @@ class BudgetRequest(BaseModel):
     travel_dates: List[str]
     travelers_count: int
     budget_range: Optional[str] = None
+
+
+
+
+class EventRequest(BaseModel):
+    """Request model for event information using OpenWeb Ninja API"""
+    location: str = Field(..., description="Location name for event search")
+    dates: List[str] = Field(..., description="List of dates in YYYY-MM-DD format")
+    categories: Optional[List[str]] = Field(None, description="Event categories to filter by")
+    limit: Optional[int] = Field(20, ge=1, le=100, description="Maximum number of events to return")
+    is_virtual: Optional[bool] = Field(False, description="Include only virtual events")
+    
+    @field_validator('dates')
+    def validate_dates(cls, v):
+        """Validate date format"""
+        for date_str in v:
+            try:
+                date.fromisoformat(date_str)
+            except ValueError:
+                raise ValueError(f"Invalid date format: {date_str}. Use YYYY-MM-DD format.")
+        return v
+    
+    @field_validator('categories')
+    def validate_categories(cls, v):
+        """Validate event categories"""
+        if v is None:
+            return v
+        
+        valid_categories = [
+            "music", "sports", "arts", "theatre", "comedy", 
+            "family", "business", "food", "film", "miscellaneous"
+        ]
+        
+        for category in v:
+            if category.lower() not in valid_categories:
+                raise ValueError(f"Invalid category: {category}. Must be one of: {valid_categories}")
+        
+        return [cat.lower() for cat in v]
+
+
+class EventSearchRequest(BaseModel):
+    """Request model for event search with OpenWeb Ninja date filters"""
+    query: str = Field(..., description="Search query for events")
+    location: Optional[str] = Field(None, description="Location to search in")
+    date_filter: Optional[str] = Field("any", description="Date filter for events")
+    is_virtual: Optional[bool] = Field(False, description="Include only virtual events")
+    limit: Optional[int] = Field(20, ge=1, le=100, description="Maximum events to return")
+    
+    @field_validator('date_filter')
+    def validate_date_filter(cls, v):
+        """Validate OpenWeb Ninja date filter"""
+        valid_filters = [
+            "any", "today", "tomorrow", "week", 
+            "weekend", "next_week", "month", "next_month"
+        ]
+        
+        if v.lower() not in valid_filters:
+            raise ValueError(f"Invalid date filter: {v}. Must be one of: {valid_filters}")
+        
+        return v.lower()
+
+
+class EventCategorySearchRequest(BaseModel):
+    """Request model for event search by category with date range"""
+    location: str = Field(..., description="Location name")
+    category: str = Field(..., description="Event category")
+    start_date: str = Field(..., description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(..., description="End date in YYYY-MM-DD format")
+    limit: Optional[int] = Field(20, ge=1, le=100, description="Maximum events to return")
+    is_virtual: Optional[bool] = Field(False, description="Include only virtual events")
+    
+    @field_validator('start_date', 'end_date')
+    def validate_date_format(cls, v):
+        """Validate date format"""
+        try:
+            date.fromisoformat(v)
+        except ValueError:
+            raise ValueError(f"Invalid date format: {v}. Use YYYY-MM-DD format.")
+        return v
+    
+    @field_validator('category')
+    def validate_category(cls, v):
+        """Validate event category"""
+        valid_categories = [
+            "music", "sports", "arts", "theatre", "comedy", 
+            "family", "business", "food", "film", "miscellaneous"
+        ]
+        
+        if v.lower() not in valid_categories:
+            raise ValueError(f"Invalid category: {v}. Must be one of: {valid_categories}")
+        
+        return v.lower()
+
+
+class PopularEventsRequest(BaseModel):
+    """Request model for popular events"""
+    location: str = Field(..., description="Location name")
+    days_ahead: Optional[int] = Field(30, ge=1, le=365, description="Number of days to look ahead")
+    limit: Optional[int] = Field(10, ge=1, le=50, description="Maximum events to return")
+    categories: Optional[List[str]] = Field(None, description="Event categories to include")
+    is_virtual: Optional[bool] = Field(False, description="Include virtual events")
+    
+    @field_validator('categories')
+    def validate_categories(cls, v):
+        """Validate event categories"""
+        if v is None:
+            return v
+        
+        valid_categories = [
+            "music", "sports", "arts", "theatre", "comedy", 
+            "family", "business", "food", "film", "miscellaneous"
+        ]
+        
+        for category in v:
+            if category.lower() not in valid_categories:
+                raise ValueError(f"Invalid category: {category}. Must be one of: {valid_categories}")
+        
+        return [cat.lower() for cat in v]
+
+
+class EventDetailsRequest(BaseModel):
+    """Request model for getting specific event details"""
+    event_id: str = Field(..., description="OpenWeb Ninja event ID")
+    
+    @field_validator('event_id')
+    def validate_event_id(cls, v):
+        """Validate event ID format"""
+        if not v or len(v) < 10:
+            raise ValueError("Invalid event ID format")
+        return v
+
+
+class VirtualEventsRequest(BaseModel):
+    """Request model for virtual events only"""
+    query: str = Field(..., description="Search query for virtual events")
+    date_filter: Optional[str] = Field("any", description="Date filter")
+    limit: Optional[int] = Field(20, ge=1, le=100, description="Maximum events to return")
+    categories: Optional[List[str]] = Field(None, description="Event categories to filter by")
+    
+    @field_validator('date_filter')
+    def validate_date_filter(cls, v):
+        """Validate date filter"""
+        valid_filters = [
+            "any", "today", "tomorrow", "week", 
+            "weekend", "next_week", "month", "next_month"
+        ]
+        
+        if v.lower() not in valid_filters:
+            raise ValueError(f"Invalid date filter: {v}. Must be one of: {valid_filters}")
+        
+        return v.lower()
+    
+    @field_validator('categories')
+    def validate_categories(cls, v):
+        """Validate categories"""
+        if v is None:
+            return v
+        
+        valid_categories = [
+            "music", "sports", "arts", "theatre", "comedy", 
+            "family", "business", "food", "film", "miscellaneous"
+        ]
+        
+        for category in v:
+            if category.lower() not in valid_categories:
+                raise ValueError(f"Invalid category: {category}. Must be one of: {valid_categories}")
+        
+        return [cat.lower() for cat in v]

@@ -1,3 +1,4 @@
+from typing import List
 from fastapi import APIRouter, HTTPException
 from datetime import datetime
 import time
@@ -12,7 +13,8 @@ from app.agents.weather_agent import WeatherAgent
 from app.agents.maps_agent import MapsAgent
 from app.agents.budget_agent import EnhancedBudgetAgent
 from app.agents.itinerary_agent import EnhancedItineraryAgent
-from app.core.state import create_initial_state
+from app.agents.event_agent import EventAgent
+from app.core.state import EventInfo, create_initial_state
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,6 +27,7 @@ weather_agent = WeatherAgent()
 maps_agent = MapsAgent()
 budget_agent = EnhancedBudgetAgent()
 itinerary_agent = EnhancedItineraryAgent()
+event_agent = EventAgent()
 
 
 
@@ -244,6 +247,14 @@ async def create_travel_plan(request: TravelPlanRequest):
         state = await maps_agent.process(state)
         state = await budget_agent.process(state)
         state = await itinerary_agent.process(state)
+        state = await event_agent.process(state)
+
+        event_recommendations = None
+        event_categories_found = None
+
+        if state.get('events_data'):
+            event_recommendations = await _generate_event_recommendations(state['events_data'])
+            event_categories_found = list(set(event.category for event in state['events_data']))
         
         # Calculate processing time
         processing_time = time.time() - start_time
@@ -260,7 +271,9 @@ async def create_travel_plan(request: TravelPlanRequest):
             budget=state.get('budget_data'),
             itinerary=state.get('itinerary_data'),
             errors=state.get('errors', []),
-            processing_time=processing_time
+            processing_time=processing_time,
+             event_recommendations=event_recommendations,
+            event_categories_found=event_categories_found
         )
         
     except Exception as e:
@@ -281,6 +294,7 @@ async def _generate_complete_trip_summary(state):
     weather_data = state.get('weather_data', [])
     route_data = state.get('route_data')
     budget_data = state.get('budget_data')
+    events_data = state.get('events_data', [])
     itinerary_data = state.get('itinerary_data', [])
     
     summary_parts = [
@@ -308,6 +322,26 @@ async def _generate_complete_trip_summary(state):
     if itinerary_data:
         total_activities = sum(len(day.activities) for day in itinerary_data)
         summary_parts.append(f"Itinerary: {len(itinerary_data)} days, {total_activities} activities")
+
+    if events_data:
+        categories = set(event.category for event in events_data)
+        venues = set(event.venue for event in events_data)
+        free_events = sum(1 for event in events_data if hasattr(event, 'is_free') and event.is_free())
+        
+        event_summary = f"Events: {len(events_data)} events across {len(categories)} categories at {len(venues)} venues"
+        if free_events > 0:
+            event_summary += f" ({free_events} free)"
+        summary_parts.append(event_summary)
+        
+        # Highlight top categories
+        category_counts = {}
+        for event in events_data:
+            category_counts[event.category] = category_counts.get(event.category, 0) + 1
+        
+        top_categories = sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[:2]
+        if top_categories:
+            top_cat_summary = ", ".join([f"{count} {cat}" for cat, count in top_categories])
+            summary_parts.append(f"Top events: {top_cat_summary}")
     
     
     # Add agent messages
@@ -384,3 +418,43 @@ async def test_route_service(origin: str, destination: str, mode: str = "driving
             "origin": origin,
             "destination": destination
         }
+    
+
+async def _generate_event_recommendations(events_data: List[EventInfo]) -> str:
+    """Generate specific event recommendations based on OpenWeb Ninja data"""
+    if not events_data:
+        return "No events available for your travel dates"
+    
+    recommendations = []
+    
+    # Find must-see events (prioritize unique venues and categories)
+    unique_venues = {}
+    for event in events_data:
+        if event.venue not in unique_venues:
+            unique_venues[event.venue] = event
+    
+    # Categorize recommendations
+    free_events = [e for e in events_data if hasattr(e, 'is_free') and e.is_free()]
+    cultural_events = [e for e in events_data if e.category in ['arts', 'theatre', 'film']]
+    entertainment_events = [e for e in events_data if e.category in ['music', 'comedy']]
+    
+    if free_events:
+        recommendations.append(f"Free events: {len(free_events)} available including {free_events[0].name}")
+    
+    if cultural_events:
+        recommendations.append(f"Cultural highlights: {cultural_events[0].name} at {cultural_events[0].venue}")
+    
+    if entertainment_events:
+        recommendations.append(f"Entertainment: {entertainment_events[0].name}")
+    
+    # Venue recommendations
+    popular_venues = {}
+    for event in events_data:
+        popular_venues[event.venue] = popular_venues.get(event.venue, 0) + 1
+    
+    top_venue = max(popular_venues.items(), key=lambda x: x[1]) if popular_venues else None
+    if top_venue and top_venue[1] > 1:
+        recommendations.append(f"Popular venue: {top_venue[0]} ({top_venue[1]} events)")
+    
+    return " | ".join(recommendations) if recommendations else "Various events available across different categories"
+
