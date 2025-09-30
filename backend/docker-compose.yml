@@ -1,15 +1,164 @@
 version: '3.8'
 
 services:
-  app:
-    build: .
+  # ==================== API SERVICE ====================
+  api:
+    build:
+      context: .
+      dockerfile: deployment/docker/Dockerfile
+    container_name: ringmaster-api
     ports:
       - "8000:8000"
     environment:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
-      - DEBUG=True
+      - OPENROUTE_API_KEY=${OPENROUTE_API_KEY}
+      - OPENWEB_NINJA_API_KEY=${OPENWEB_NINJA_API_KEY}
+      - REDIS_URL=${REDIS_URL}
+      - DEBUG=true
+      - STREAMING_ENABLED=true
     volumes:
-      - .:/app
+      - ./app:/app/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - ringmaster-network
+    depends_on:
+      - weather-worker
+      - events-worker
+      - maps-worker
+      - budget-worker
+      - itinerary-worker
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ==================== WORKER SERVICES ====================
+  
+  weather-worker:
+    build:
+      context: .
+      dockerfile: deployment/docker/Dockerfile.worker
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+      - OPENROUTE_API_KEY=${OPENROUTE_API_KEY}
+      - OPENWEB_NINJA_API_KEY=${OPENWEB_NINJA_API_KEY}
+      - REDIS_URL=${REDIS_URL}
+      - WORKER_TYPE=weather
+      - STREAMING_ENABLED=true
+    volumes:
+      - ./app:/app/app
+    command: python -m app.workers.weather_worker
+    networks:
+      - ringmaster-network
     restart: unless-stopped
+    deploy:
+      replicas: 1
+
+  events-worker:
+    build:
+      context: .
+      dockerfile: deployment/docker/Dockerfile.worker
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+      - OPENROUTE_API_KEY=${OPENROUTE_API_KEY}
+      - OPENWEB_NINJA_API_KEY=${OPENWEB_NINJA_API_KEY}
+      - REDIS_URL=${REDIS_URL}
+      - WORKER_TYPE=events
+      - STREAMING_ENABLED=true
+    volumes:
+      - ./app:/app/app
+    command: python -m app.workers.events_worker
+    networks:
+      - ringmaster-network
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+
+  maps-worker:
+    build:
+      context: .
+      dockerfile: deployment/docker/Dockerfile.worker
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+      - OPENROUTE_API_KEY=${OPENROUTE_API_KEY}
+      - OPENWEB_NINJA_API_KEY=${OPENWEB_NINJA_API_KEY}
+      - REDIS_URL=${REDIS_URL}
+      - WORKER_TYPE=maps
+      - STREAMING_ENABLED=true
+    volumes:
+      - ./app:/app/app
+    command: python -m app.workers.maps_worker
+    networks:
+      - ringmaster-network
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+
+  budget-worker:
+    build:
+      context: .
+      dockerfile: deployment/docker/Dockerfile.worker
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+      - OPENROUTE_API_KEY=${OPENROUTE_API_KEY}
+      - OPENWEB_NINJA_API_KEY=${OPENWEB_NINJA_API_KEY}
+      - REDIS_URL=${REDIS_URL}
+      - WORKER_TYPE=budget
+      - STREAMING_ENABLED=true
+    volumes:
+      - ./app:/app/app
+    command: python -m app.workers.budget_worker
+    networks:
+      - ringmaster-network
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+
+  itinerary-worker:
+    build:
+      context: .
+      dockerfile: deployment/docker/Dockerfile.worker
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+      - OPENROUTE_API_KEY=${OPENROUTE_API_KEY}
+      - OPENWEB_NINJA_API_KEY=${OPENWEB_NINJA_API_KEY}
+      - REDIS_URL=${REDIS_URL}
+      - WORKER_TYPE=itinerary
+      - STREAMING_ENABLED=true
+    volumes:
+      - ./app:/app/app
+    command: python -m app.workers.itinerary_worker
+    networks:
+      - ringmaster-network
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+
+networks:
+  ringmaster-network:
+    driver: bridge
+
+# Note: Using Upstash Redis (cloud), so no local Redis container needed
+# For local development with Redis, uncomment below:
+#
+# services:
+#   redis:
+#     image: redis:7-alpine
+#     container_name: ringmaster-redis
+#     ports:
+#       - "6379:6379"
+#     networks:
+#       - ringmaster-network
+#     command: redis-server --appendonly yes
+#     volumes:
+#       - redis-data:/data
+#
+# volumes:
+#   redis-data:
