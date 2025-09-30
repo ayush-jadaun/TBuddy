@@ -1,31 +1,38 @@
-from typing import List
+from typing import List, Dict, Any, Optional
 import json
 from app.agents.base_agent import BaseAgent
 from app.core.state import TravelState, WeatherInfo
 from app.services.weather_service import WeatherService
+from app.messaging.protocols import MCPMessage, AgentType
+from app.messaging.redis_client import RedisClient
 
 
 class WeatherAgent(BaseAgent):
-    """Sky Gazer - Weather forecasting agent"""
+    """Sky Gazer - Weather forecasting agent with MCP support"""
     
-    def __init__(self):
-        super().__init__(
-            name="Sky Gazer",
-            role="Weather Forecaster", 
-            expertise="Weather analysis, climate patterns, and travel weather recommendations"
-        )
+    def __init__(
+        self,
+        name: str = "Sky Gazer",
+        role: str = "Weather Forecaster",
+        expertise: str = "Weather analysis, climate patterns, and travel weather recommendations",
+        agent_type: AgentType = AgentType.WEATHER,
+        redis_client: Optional[RedisClient] = None
+    ):
+        super().__init__(name, role, expertise, agent_type, redis_client)
         self.weather_service = WeatherService()
     
     def get_system_prompt(self) -> str:
         """Get the system prompt for the weather agent"""
-        return """
-        You are the Sky Gazer, a weather expert and travel advisor. Your role is to:
+        return f"""
+        You are {self.name}, a {self.role}. Your role is to:
         
         1. Analyze weather data for travel destinations
         2. Provide weather-based travel recommendations
         3. Suggest appropriate clothing and gear
         4. Warn about potential weather-related travel issues
         5. Recommend optimal times for outdoor activities
+        
+        Expertise: {self.expertise}
         
         Always provide practical, actionable weather advice that helps travelers prepare.
         Be concise but informative. Focus on how weather will impact the travel experience.
@@ -37,8 +44,98 @@ class WeatherAgent(BaseAgent):
         - Activity suggestions based on weather
         """
     
+    async def handle_request(self, request: MCPMessage) -> Dict[str, Any]:
+        """
+        Handle MCP request for weather data
+        
+        Expected payload:
+        {
+            "destination": "Paris, France",
+            "travel_dates": ["2025-07-01", "2025-07-02", "2025-07-03"]
+        }
+        
+        Returns:
+        {
+            "weather_forecast": [...],
+            "weather_summary": "...",
+            "destination": "Paris, France",
+            "forecast_count": 3,
+            "average_temp_range": {"min": 15, "max": 25}
+        }
+        """
+        payload = request.payload
+        destination = payload.get("destination")
+        travel_dates = payload.get("travel_dates", [])
+        
+        # Validate required fields
+        if not destination:
+            raise ValueError("Missing required field: destination")
+        if not travel_dates:
+            raise ValueError("Missing required field: travel_dates")
+        
+        self.log_action("Fetching weather data", f"Destination: {destination}, Dates: {len(travel_dates)}")
+        
+        # Send progress update
+        await self._send_streaming_update(
+            request.session_id,
+            "progress",
+            f"Fetching weather forecast for {destination}",
+            progress_percent=30
+        )
+        
+        # Fetch weather data using the weather service
+        weather_forecast = await self.weather_service.get_weather_for_dates(
+            location=destination,
+            dates=travel_dates
+        )
+        
+        if not weather_forecast:
+            raise Exception(f"No weather data available for {destination}")
+        
+        # Send progress update
+        await self._send_streaming_update(
+            request.session_id,
+            "progress",
+            "Analyzing weather patterns",
+            progress_percent=60
+        )
+        
+        # Convert WeatherInfo objects to dictionaries
+        weather_data = [w.dict() for w in weather_forecast]
+        
+        # Generate weather insights using LLM
+        weather_summary = await self._generate_weather_insights_for_request(
+            weather_forecast,
+            destination,
+            travel_dates
+        )
+        
+        # Calculate temperature range
+        avg_temp_min = sum(w.temperature_min for w in weather_forecast) / len(weather_forecast)
+        avg_temp_max = sum(w.temperature_max for w in weather_forecast) / len(weather_forecast)
+        
+        self.log_action("Weather data retrieved", f"Forecast days: {len(weather_forecast)}")
+        
+        return {
+            "weather_forecast": weather_data,
+            "weather_summary": weather_summary,
+            "destination": destination,
+            "forecast_count": len(weather_forecast),
+            "average_temp_range": {
+                "min": round(avg_temp_min, 1),
+                "max": round(avg_temp_max, 1)
+            },
+            "date_range": {
+                "start": travel_dates[0] if travel_dates else None,
+                "end": travel_dates[-1] if travel_dates else None
+            }
+        }
+    
     async def process(self, state: TravelState) -> TravelState:
-        """Process weather information for the travel destination"""
+        """
+        Legacy method - Process weather information for the travel destination
+        Kept for backward compatibility with existing orchestration
+        """
         self.log_action("Starting weather analysis", f"Destination: {state['destination']}")
         
         try:
@@ -72,9 +169,36 @@ class WeatherAgent(BaseAgent):
             
         return state
     
+    async def _generate_weather_insights_for_request(
+        self,
+        weather_data: List[WeatherInfo],
+        destination: str,
+        travel_dates: List[str]
+    ) -> str:
+        """Generate weather insights for MCP request"""
+        weather_summary = self._format_weather_for_llm(weather_data)
+        
+        user_input = f"""
+        Destination: {destination}
+        Travel Dates: {', '.join(travel_dates)}
+        Number of Days: {len(travel_dates)}
+        
+        Weather Data:
+        {weather_summary}
+        
+        Please provide a concise weather summary and travel recommendations for this trip.
+        Focus on: overall conditions, packing suggestions, and any weather advisories.
+        """
+        
+        try:
+            insights = await self.invoke_llm(self.get_system_prompt(), user_input)
+            return insights
+        except Exception as e:
+            self.log_error("Failed to generate weather insights", str(e))
+            return self.get_weather_summary(weather_data)
+    
     async def _generate_weather_insights(self, weather_data: List[WeatherInfo], state: TravelState) -> str:
-        """Generate weather insights using the LLM"""
-        # Format weather data for the LLM
+        """Generate weather insights using the LLM (legacy method)"""
         weather_summary = self._format_weather_for_llm(weather_data)
         location_context = self.format_location_context(state)
         
