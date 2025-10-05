@@ -144,7 +144,7 @@ class TravelOrchestrator:
         )
         
         # Update agent status
-        state = update_agent_status(state, "weather", AgentStatus.PROCESSING)
+        state = update_agent_status(state, "weather", AgentStatus.PROCESSING,request_id=request.request_id)
         
         # Publish to weather request channel
         channel = RedisChannels.WEATHER_REQUEST
@@ -166,7 +166,7 @@ class TravelOrchestrator:
             timeout_ms=settings.timeout_events
         )
         
-        state = update_agent_status(state, "events", AgentStatus.PROCESSING)
+        state = update_agent_status(state, "events", AgentStatus.PROCESSING,request_id=request.request_id)
         
         channel = RedisChannels.EVENTS_REQUEST
         await self.redis_client.publish(channel, request.dict())
@@ -182,7 +182,7 @@ class TravelOrchestrator:
             timeout_ms=settings.timeout_maps
         )
         
-        state = update_agent_status(state, "maps", AgentStatus.PROCESSING)
+        state = update_agent_status(state, "maps", AgentStatus.PROCESSING,request_id=request.request_id)
         
         channel = RedisChannels.MAPS_REQUEST
         await self.redis_client.publish(channel, request.dict())
@@ -200,7 +200,7 @@ class TravelOrchestrator:
             timeout_ms=settings.timeout_budget
         )
         
-        state = update_agent_status(state, "budget", AgentStatus.PROCESSING)
+        state = update_agent_status(state, "budget", AgentStatus.PROCESSING,request_id=request.request_id)
         
         channel = RedisChannels.BUDGET_REQUEST
         await self.redis_client.publish(channel, request.dict())
@@ -298,6 +298,7 @@ class TravelOrchestrator:
         success = response_data.get("success", False)
         data = response_data.get("data")
         error = response_data.get("error")
+        self.logger.debug(f"Processing {agent_name} response: success={success}, data_keys={data.keys() if data else None}")
         
         if success and data:
             # Store agent data in state
@@ -401,7 +402,7 @@ class TravelOrchestrator:
         if response_data and response_data.get("success"):
             data = response_data.get("data", {})
             state["itinerary_data"] = data.get("itinerary_days", [])
-            state["final_itinerary"] = data.get("final_itinerary_text", "")
+            state["final_itinerary"] = data.get("itinerary_narrative", "")
             state["itinerary_complete"] = True
             state = update_agent_status(state, "itinerary", AgentStatus.COMPLETED)
             self.logger.info("✅ Itinerary synthesis completed")

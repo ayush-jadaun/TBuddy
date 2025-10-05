@@ -258,13 +258,18 @@ def update_agent_status(
     state: TravelState,
     agent_name: str,
     status: AgentStatus,
-    error_message: Optional[str] = None
+    error_message: Optional[str] = None,
+    request_id: Optional[str] = None  # Add this parameter
 ) -> TravelState:
     """Update the status of a specific agent"""
     
     agent_meta = state["agent_status"][agent_name]
     agent_meta["status"] = status.value
     agent_meta["updated_at"] = datetime.utcnow().isoformat()
+    
+    # Store request_id if provided
+    if request_id is not None:
+        agent_meta["request_id"] = request_id
     
     if status == AgentStatus.PROCESSING and agent_meta["started_at"] is None:
         agent_meta["started_at"] = datetime.utcnow().isoformat()
@@ -288,7 +293,6 @@ def update_agent_status(
     state["updated_at"] = datetime.utcnow().isoformat()
     
     return state
-
 
 def add_streaming_update(
     state: TravelState,
