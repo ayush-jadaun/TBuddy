@@ -9,6 +9,7 @@ from datetime import datetime
 from app.config.settings import settings
 from app.api.routes import router as legacy_router
 from app.api.orchestrator_routes import router as orchestrator_router
+from app.api import streaming
 from app.models.response import ErrorResponse
 from app.messaging.redis_client import get_redis_client
 
@@ -98,7 +99,7 @@ app.add_middleware(
 # Include routers
 app.include_router(legacy_router, prefix="/api/v1", tags=["Legacy API"])
 app.include_router(orchestrator_router, tags=["Orchestrator API"])
-
+app.include_router(streaming.router, prefix="/api/v1", tags=["Streaming"])
 
 # Exception handlers
 @app.exception_handler(HTTPException)

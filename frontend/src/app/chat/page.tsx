@@ -1,4 +1,4 @@
-'use client'
+"use client";
 import { useState, useEffect, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -92,8 +92,6 @@ const TravelPlannerForm = ({ onSubmit }) => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-
-    // Filter out empty dates and validate
     const validDates = formData.travel_dates.filter((d) => d !== "");
     if (validDates.length < 1) {
       alert("Please add at least one travel date");
@@ -134,7 +132,6 @@ const TravelPlannerForm = ({ onSubmit }) => {
         Plan Your Journey
       </h2>
 
-      {/* Required Fields */}
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
@@ -150,7 +147,6 @@ const TravelPlannerForm = ({ onSubmit }) => {
               placeholder="e.g., New York, USA"
             />
           </div>
-
           <div>
             <label className="block text-sm text-zinc-400 mb-2">
               Destination <span className="text-red-500">*</span>
@@ -166,7 +162,6 @@ const TravelPlannerForm = ({ onSubmit }) => {
           </div>
         </div>
 
-        {/* Travel Dates */}
         <div>
           <label className="block text-sm text-zinc-400 mb-2">
             Travel Dates <span className="text-red-500">*</span>
@@ -201,7 +196,6 @@ const TravelPlannerForm = ({ onSubmit }) => {
           </button>
         </div>
 
-        {/* Travelers Count and Budget */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-sm text-zinc-400 mb-2">
@@ -219,7 +213,6 @@ const TravelPlannerForm = ({ onSubmit }) => {
               className="w-full bg-zinc-900/50 border border-zinc-700 rounded-lg p-3 text-zinc-100 focus:outline-none focus:border-amber-400/50"
             />
           </div>
-
           <div>
             <label className="block text-sm text-zinc-400 mb-2">
               Budget Range (Optional)
@@ -234,13 +227,11 @@ const TravelPlannerForm = ({ onSubmit }) => {
           </div>
         </div>
 
-        {/* Preferences Section */}
         <div className="pt-6 border-t border-zinc-800">
           <h3 className="text-xl font-light text-zinc-100 mb-4">
             Preferences (Optional)
           </h3>
 
-          {/* Interests */}
           <div className="mb-6">
             <label className="block text-sm text-zinc-400 mb-2">
               Interests
@@ -263,7 +254,6 @@ const TravelPlannerForm = ({ onSubmit }) => {
             </div>
           </div>
 
-          {/* Pace and Group Type */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
             <div>
               <label className="block text-sm text-zinc-400 mb-2">
@@ -279,7 +269,6 @@ const TravelPlannerForm = ({ onSubmit }) => {
                 <option value="packed">Packed</option>
               </select>
             </div>
-
             <div>
               <label className="block text-sm text-zinc-400 mb-2">
                 Group Type
@@ -297,7 +286,6 @@ const TravelPlannerForm = ({ onSubmit }) => {
             </div>
           </div>
 
-          {/* Dietary Restrictions */}
           <div className="mb-6">
             <label className="block text-sm text-zinc-400 mb-2">
               Dietary Restrictions
@@ -322,7 +310,6 @@ const TravelPlannerForm = ({ onSubmit }) => {
             </div>
           </div>
 
-          {/* Accessibility Needs */}
           <div>
             <label className="block text-sm text-zinc-400 mb-2">
               Accessibility Needs
@@ -348,7 +335,6 @@ const TravelPlannerForm = ({ onSubmit }) => {
           </div>
         </div>
 
-        {/* Submit Button */}
         <button
           type="submit"
           className="w-full bg-gradient-to-r from-red-700 to-red-900 hover:from-red-600 hover:to-red-700 text-white py-4 rounded-xl transition-all duration-300 shadow-lg hover:shadow-red-500/50 text-lg font-medium mt-8"
@@ -360,24 +346,14 @@ const TravelPlannerForm = ({ onSubmit }) => {
   );
 };
 
-const LoadingState = () => {
-  const stages = [
-    { text: "Ringmaster is thinking", icon: "🎪" },
-    { text: "Analyzing your preferences", icon: "🔍" },
-    { text: "Checking weather conditions", icon: "🌤️" },
-    { text: "Finding the best routes", icon: "🗺️" },
-    { text: "Calculating your budget", icon: "💰" },
-    { text: "Crafting your perfect itinerary", icon: "✨" },
+const LoadingState = ({ agentStatus }) => {
+  const agents = [
+    { key: "weather", label: "Checking weather conditions", icon: "🌤️" },
+    { key: "events", label: "Finding local events", icon: "🎉" },
+    { key: "maps", label: "Calculating best routes", icon: "🗺️" },
+    { key: "budget", label: "Calculating your budget", icon: "💰" },
+    { key: "itinerary", label: "Crafting your perfect itinerary", icon: "✨" },
   ];
-
-  const [currentStage, setCurrentStage] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentStage((prev) => (prev + 1) % stages.length);
-    }, 2000);
-    return () => clearInterval(interval);
-  }, []);
 
   return (
     <div className="flex flex-col items-center justify-center space-y-8 min-h-screen">
@@ -389,311 +365,147 @@ const LoadingState = () => {
         <div className="w-20 h-20 border-4 border-red-900/30 border-t-red-500 rounded-full" />
       </motion.div>
 
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={currentStage}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          className="text-center"
-        >
-          <div className="text-4xl mb-3">{stages[currentStage].icon}</div>
-          <div className="text-xl text-zinc-300 font-light">
-            {stages[currentStage].text}
-          </div>
-        </motion.div>
-      </AnimatePresence>
+      <div className="w-full max-w-md space-y-4">
+        {agents.map((agent) => {
+          const status = agentStatus?.[agent.key]?.status || "pending";
+          const color =
+            status === "completed"
+              ? "text-green-400"
+              : status === "failed"
+              ? "text-red-400"
+              : status === "processing"
+              ? "text-yellow-400"
+              : "text-zinc-500";
 
-      <div className="flex gap-2">
-        {stages.map((_, i) => (
-          <motion.div
-            key={i}
-            className={`h-1.5 rounded-full transition-all duration-300 ${
-              i === currentStage ? "w-8 bg-red-500" : "w-1.5 bg-zinc-700"
-            }`}
-          />
-        ))}
+          return (
+            <motion.div
+              key={agent.key}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="flex items-center justify-between p-3 bg-zinc-900/30 rounded-lg border border-zinc-800/30"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">{agent.icon}</span>
+                <span className="text-zinc-200">{agent.label}</span>
+              </div>
+              <span className={`text-sm font-medium ${color}`}>{status}</span>
+            </motion.div>
+          );
+        })}
       </div>
     </div>
   );
 };
 
 const ItineraryView = ({ data, formData }) => {
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: data.budget?.currency || "INR",
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
-
-  const getWeatherIcon = (description) => {
-    if (!description) return "🌤️";
-    if (description.includes("rain")) return "🌧️";
-    if (description.includes("cloud")) return "☁️";
-    if (description.includes("sun")) return "☀️";
-    return "🌤️";
-  };
-
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="w-full max-w-6xl mx-auto px-4 pb-20"
-    >
-      {/* Trip Summary */}
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mb-8 p-6 bg-zinc-900/50 backdrop-blur-md border border-zinc-800 rounded-2xl"
-      >
-        <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 to-red-500 flex items-center justify-center text-white font-bold text-lg">
-            📍
-          </div>
-          <div className="flex-1">
-            <h3 className="text-2xl font-light text-zinc-100 mb-2">
-              {formData.origin} → {formData.destination}
-            </h3>
-            <div className="flex flex-wrap gap-4 text-sm text-zinc-400">
-              <span>
-                👥 {formData.travelers_count} traveler
-                {formData.travelers_count > 1 ? "s" : ""}
-              </span>
-              <span>📅 {formData.travel_dates.length} days</span>
-              {formData.budget_range && <span>💵 {formData.budget_range}</span>}
-            </div>
-          </div>
+    <div className="max-w-5xl mx-auto p-4 space-y-6">
+      <h2 className="text-3xl font-light text-zinc-100 mb-4">
+        Your AI Travel Plan
+      </h2>
+
+      <div className="bg-zinc-900/40 p-6 rounded-xl border border-zinc-800/50 space-y-4">
+        <p className="text-zinc-300">
+          <strong>From:</strong> {formData?.origin || "Unknown"}
+        </p>
+        <p className="text-zinc-300">
+          <strong>To:</strong> {formData?.destination || "Unknown"}
+        </p>
+        <p className="text-zinc-300">
+          <strong>Dates:</strong>{" "}
+          {formData?.travel_dates?.join(", ") || "Unknown"}
+        </p>
+      </div>
+
+      {data.weather_summary && (
+        <div className="bg-zinc-900/40 p-6 rounded-xl border border-zinc-800/50">
+          <h3 className="text-xl font-semibold text-zinc-100 mb-3">Weather</h3>
+          <p className="text-zinc-300">{data.weather_summary}</p>
         </div>
-      </motion.div>
-
-      {/* Budget Overview */}
-      {data.budget && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="mb-8 p-6 bg-gradient-to-br from-red-900/20 to-amber-900/20 backdrop-blur-md border border-red-800/30 rounded-2xl"
-        >
-          <h3 className="text-xl font-light text-zinc-100 mb-4 flex items-center gap-2">
-            💰 Budget Breakdown
-          </h3>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-amber-400">
-                {formatCurrency(data.budget.total)}
-              </div>
-              <div className="text-sm text-zinc-400">Total</div>
-            </div>
-            <div className="text-center">
-              <div className="text-lg text-zinc-300">
-                {formatCurrency(data.budget.transportation)}
-              </div>
-              <div className="text-sm text-zinc-400">Transport</div>
-            </div>
-            <div className="text-center">
-              <div className="text-lg text-zinc-300">
-                {formatCurrency(data.budget.accommodation)}
-              </div>
-              <div className="text-sm text-zinc-400">Stay</div>
-            </div>
-            <div className="text-center">
-              <div className="text-lg text-zinc-300">
-                {formatCurrency(data.budget.food)}
-              </div>
-              <div className="text-sm text-zinc-400">Food</div>
-            </div>
-            <div className="text-center">
-              <div className="text-lg text-zinc-300">
-                {formatCurrency(data.budget.activities)}
-              </div>
-              <div className="text-sm text-zinc-400">Activities</div>
-            </div>
-          </div>
-        </motion.div>
-      )}
-      {/* Events */}
-      {data.events && data.events.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25 }}
-          className="mb-8 p-6 bg-black/40 backdrop-blur-md border border-zinc-800/50 rounded-2xl"
-        >
-          <h3 className="text-xl font-light text-zinc-100 mb-4 flex items-center gap-2">
-            🎉 Local Events
-          </h3>
-          <div className="space-y-4">
-            {data.events.map((event, index) => (
-              <div
-                key={index}
-                className="p-4 bg-zinc-900/30 rounded-lg border border-zinc-800 hover:border-zinc-700 transition-colors"
-              >
-                <div className="flex justify-between items-start mb-2">
-                  <h4 className="text-lg text-zinc-200 font-medium">
-                    {event.name}
-                  </h4>
-                  <span className="text-xs px-2 py-1 bg-amber-900/30 text-amber-400 rounded-full">
-                    {event.category}
-                  </span>
-                </div>
-                <div className="space-y-1 text-sm text-zinc-400">
-                  <div className="flex items-center gap-2">
-                    <span>📅</span>
-                    <span>
-                      {event.date} at {event.time}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span>📍</span>
-                    <span>{event.venue}</span>
-                  </div>
-                  {event.description && (
-                    <p className="text-zinc-500 mt-2">{event.description}</p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </motion.div>
       )}
 
-      {/* Route Information */}
-      {data.route && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="mb-8 p-6 bg-black/40 backdrop-blur-md border border-zinc-800/50 rounded-2xl"
-        >
-          <h3 className="text-xl font-light text-zinc-100 mb-4 flex items-center gap-2">
-            🗺️ Route Details
-          </h3>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
-            <div>
-              <div className="text-sm text-zinc-400">Distance</div>
-              <div className="text-lg text-zinc-100">{data.route.distance}</div>
-            </div>
-            <div>
-              <div className="text-sm text-zinc-400">Duration</div>
-              <div className="text-lg text-zinc-100">{data.route.duration}</div>
-            </div>
-            <div>
-              <div className="text-sm text-zinc-400">Mode</div>
-              <div className="text-lg text-zinc-100 capitalize">
-                {data.route.transport_mode}
-              </div>
-            </div>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Daily Itinerary */}
-      {data.itinerary?.map((day, index) => (
-        <motion.div
-          key={day.day}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 + index * 0.1 }}
-          className="mb-6 p-6 bg-black/40 backdrop-blur-md border border-zinc-800/50 rounded-2xl hover:border-zinc-700/50 transition-all"
-        >
-          <div className="flex justify-between items-start mb-4">
-            <div>
-              <h3 className="text-2xl font-light text-zinc-100 mb-1">
+      {data.itinerary_data && data.itinerary_data.length > 0 && (
+        <div className="space-y-4">
+          <h3 className="text-2xl font-semibold text-zinc-100">Itinerary</h3>
+          {data.itinerary_data.map((day, index) => (
+            <div
+              key={index}
+              className="bg-zinc-900/40 p-4 rounded-xl border border-zinc-800/50"
+            >
+              <h4 className="text-xl font-semibold text-zinc-100 mb-2">
                 Day {day.day}
-              </h3>
-              <p className="text-zinc-400">{day.date}</p>
-            </div>
-            <div className="text-right">
-              <div className="text-lg text-amber-400 font-semibold">
-                {formatCurrency(day.estimated_cost)}
-              </div>
-              {data.weather?.[index] && (
-                <div className="text-sm text-zinc-400 flex items-center gap-2 mt-1">
-                  <span>{getWeatherIcon(data.weather[index].description)}</span>
-                  <span>
-                    {Math.round(data.weather[index].temperature_max)}°C
-                  </span>
-                </div>
+              </h4>
+              <p className="text-sm text-zinc-400 mb-3">{day.date}</p>
+              <ul className="list-disc list-inside text-zinc-300 space-y-1">
+                {day.activities?.map((act, idx) => (
+                  <li key={idx}>{act}</li>
+                ))}
+              </ul>
+              {day.notes && (
+                <p className="mt-3 text-sm text-zinc-400 italic">{day.notes}</p>
               )}
             </div>
-          </div>
+          ))}
+        </div>
+      )}
 
-          {day.notes && (
-            <div className="mb-4 p-3 bg-amber-900/10 border border-amber-800/30 rounded-lg">
-              <p className="text-sm text-amber-200/80 flex items-start gap-2">
-                <span className="text-amber-500">⚠️</span>
-                {day.notes}
-              </p>
-            </div>
-          )}
-
+      {data.events_data && data.events_data.length > 0 && (
+        <div className="bg-zinc-900/40 p-6 rounded-xl border border-zinc-800/50">
+          <h3 className="text-xl font-semibold text-zinc-100 mb-3">Events</h3>
           <div className="space-y-3">
-            {day.activities?.map((activity, actIndex) => (
-              <motion.div
-                key={actIndex}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.4 + index * 0.1 + actIndex * 0.05 }}
-                className="flex gap-3 items-start group"
-              >
-                <div className="w-2 h-2 mt-2 rounded-full bg-red-800 group-hover:bg-red-500 transition-colors flex-shrink-0" />
-                <p className="text-zinc-300 group-hover:text-zinc-100 transition-colors">
-                  {activity}
+            {data.events_data.slice(0, 5).map((event, idx) => (
+              <div key={idx} className="border-l-2 border-amber-500 pl-3">
+                <p className="font-medium text-zinc-200">{event.name}</p>
+                <p className="text-sm text-zinc-400">
+                  {event.date} at {event.time}
                 </p>
-              </motion.div>
-            ))}
-          </div>
-        </motion.div>
-      ))}
-
-      {/* Processing Info */}
-      {data.agent_status && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-          className="mt-8 p-6 bg-zinc-900/30 backdrop-blur-md border border-zinc-800/30 rounded-2xl"
-        >
-          <h3 className="text-lg font-light text-zinc-100 mb-4">
-            Processing Details
-          </h3>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center">
-            {Object.entries(data.agent_status).map(([agent, status]) => (
-              <div key={agent} className="p-3 bg-black/30 rounded-lg">
-                <div className="text-sm text-zinc-400 capitalize mb-1">
-                  {agent}
-                </div>
-                <div
-                  className={`text-xs font-medium ${
-                    status.status === "completed"
-                      ? "text-green-400"
-                      : status.status === "failed"
-                      ? "text-red-400"
-                      : "text-yellow-400"
-                  }`}
-                >
-                  {status.status}
-                </div>
-                {status.duration_ms && (
-                  <div className="text-xs text-zinc-500 mt-1">
-                    {(status.duration_ms / 1000).toFixed(1)}s
-                  </div>
-                )}
               </div>
             ))}
           </div>
-        </motion.div>
+        </div>
       )}
-    </motion.div>
+
+      {data.budget_data && (
+        <div className="bg-zinc-900/40 p-6 rounded-xl border border-zinc-800/50">
+          <h3 className="text-xl font-semibold text-zinc-100 mb-3">Budget</h3>
+          <div className="space-y-2 text-zinc-300">
+            <p>Transportation: ${data.budget_data.transportation}</p>
+            <p>Accommodation: ${data.budget_data.accommodation}</p>
+            <p>Food: ${data.budget_data.food}</p>
+            <p>Activities: ${data.budget_data.activities}</p>
+            <p className="font-bold text-lg mt-3">
+              Total: ${data.budget_data.total}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
   );
+};
+
+// Generate a temporary session ID
+const generateTempSessionId = () => {
+  return `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 };
 
 const Page = () => {
   const [currentTitleIndex, setCurrentTitleIndex] = useState(0);
   const [isPlanning, setIsPlanning] = useState(false);
-  const [planData, setPlanData] = useState(null);
+  const [sessionId, setSessionId] = useState(null);
+  const [planData, setPlanData] = useState({
+    agent_status: {},
+    weather_data: null,
+    weather_summary: null,
+    events_data: null,
+    route_data: null,
+    budget_data: null,
+    itinerary_data: null,
+    final_itinerary: null,
+    completed_agents: 0,
+    failed_agents: 0,
+  });
   const [formData, setFormData] = useState(null);
+  const [eventSource, setEventSource] = useState(null);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -702,25 +514,117 @@ const Page = () => {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (eventSource) {
+        eventSource.close();
+      }
+    };
+  }, [eventSource]);
+
   const handlePlanSubmit = async (payload) => {
     setFormData(payload);
     setIsPlanning(true);
 
+    // CRITICAL: Generate session ID first
+    const tempSessionId = generateTempSessionId();
+    setSessionId(tempSessionId);
+
+    // CRITICAL: Connect to SSE FIRST, before starting the workflow
+    console.log("Connecting to SSE for session:", tempSessionId);
+    const es = new EventSource(
+      `http://localhost:8000/api/v1/stream/${tempSessionId}`
+    );
+    setEventSource(es);
+
+    es.onopen = () => {
+      console.log("SSE connection opened");
+    };
+
+    es.onmessage = (event) => {
+      try {
+        const update = JSON.parse(event.data);
+        console.log("Received update:", update);
+
+        if (update.type === "connected") {
+          console.log("SSE connected, starting workflow...");
+          // NOW start the workflow after SSE is connected
+          startWorkflow(payload, tempSessionId);
+          return;
+        }
+
+        if (update.type === "done" || update.type === "workflow_complete") {
+          console.log("Workflow complete");
+          es.close();
+          return;
+        }
+
+        if (update.agent && update.data) {
+          setPlanData((prev) => {
+            const updated = { ...prev };
+
+            if (update.data.weather_summary) {
+              updated.weather_summary = update.data.weather_summary;
+            }
+            if (update.data.weather_data) {
+              updated.weather_data = update.data.weather_data;
+            }
+            if (update.data.events_data) {
+              updated.events_data = update.data.events_data;
+            }
+            if (update.data.route_data) {
+              updated.route_data = update.data.route_data;
+            }
+            if (update.data.budget_data) {
+              updated.budget_data = update.data.budget_data;
+            }
+            if (update.data.itinerary_data) {
+              updated.itinerary_data = update.data.itinerary_data;
+            }
+            if (update.data.final_itinerary) {
+              updated.final_itinerary = update.data.final_itinerary;
+            }
+
+            updated.agent_status = {
+              ...prev.agent_status,
+              [update.agent]: { status: "completed" },
+            };
+
+            updated.completed_agents = Object.values(
+              updated.agent_status
+            ).filter((s) => s.status === "completed").length;
+
+            return updated;
+          });
+        }
+      } catch (error) {
+        console.error("Error parsing SSE message:", error);
+      }
+    };
+
+    es.onerror = (err) => {
+      console.error("SSE error:", err);
+      es.close();
+      alert("Connection lost. Please try again.");
+      setIsPlanning(false);
+    };
+  };
+
+  const startWorkflow = async (payload, sessionId) => {
     try {
+      console.log("Starting workflow with session:", sessionId);
       const response = await fetch("http://localhost:8000/api/v1/plan-trip", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...payload,
+          session_id: sessionId, // Pass the temp session ID
+        }),
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to generate plan");
-      }
-
+      if (!response.ok) throw new Error("Failed to generate plan");
       const result = await response.json();
-      setPlanData(result.data);
+      console.log("Workflow started:", result);
     } catch (error) {
       console.error("Error generating plan:", error);
       alert("Failed to generate travel plan. Please try again.");
@@ -729,10 +633,33 @@ const Page = () => {
   };
 
   const handleNewPlan = () => {
+    if (eventSource) {
+      eventSource.close();
+    }
     setIsPlanning(false);
-    setPlanData(null);
+    setSessionId(null);
+    setPlanData({
+      agent_status: {},
+      weather_data: null,
+      weather_summary: null,
+      events_data: null,
+      route_data: null,
+      budget_data: null,
+      itinerary_data: null,
+      final_itinerary: null,
+      completed_agents: 0,
+      failed_agents: 0,
+    });
     setFormData(null);
   };
+
+  // Show results as soon as ANY data arrives
+  const hasResults =
+    planData.weather_summary ||
+    planData.events_data ||
+    planData.route_data ||
+    planData.budget_data ||
+    (planData.itinerary_data && planData.itinerary_data.length > 0);
 
   return (
     <div className="min-h-screen w-screen overflow-x-hidden bg-black relative">
@@ -741,7 +668,7 @@ const Page = () => {
 
       <div className="relative z-10">
         <AnimatePresence mode="wait">
-          {!isPlanning && !planData ? (
+          {!isPlanning ? (
             <motion.div
               key="landing"
               initial={{ opacity: 0 }}
@@ -774,15 +701,14 @@ const Page = () => {
               </div>
               <TravelPlannerForm onSubmit={handlePlanSubmit} />
             </motion.div>
-            
-          ) : !planData ? (
+          ) : !hasResults ? (
             <motion.div
               key="loading"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
             >
-              <LoadingState />
+              <LoadingState agentStatus={planData.agent_status} />
             </motion.div>
           ) : (
             <motion.div
@@ -802,9 +728,7 @@ const Page = () => {
                     ← New Plan
                   </motion.button>
                   <div className="text-zinc-400 text-sm">
-                    {planData.completed_agents} /{" "}
-                    {planData.completed_agents + planData.failed_agents} agents
-                    completed
+                    {planData.completed_agents} agents completed
                   </div>
                 </div>
               </div>

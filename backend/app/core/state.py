@@ -4,6 +4,8 @@ from datetime import datetime, date
 from enum import Enum
 import json
 import uuid
+from app.messaging.redis_client import get_redis_client, RedisChannels
+from app.messaging import redis_client
 
 
 class AgentStatus(str, Enum):
@@ -305,22 +307,39 @@ def update_agent_status(
     
     return state
 
-def add_streaming_update(
-    state: TravelState,
+
+async def add_streaming_update(
+    session_id: str,
     agent_name: str,
-    update_type: str,
-    data: Dict[str, Any]
-) -> TravelState:
-    """Add a streaming update for real-time progress"""
+    data: Dict[str, Any],
+    state: TravelState = None
+) -> None:
+    """
+    Send a streaming update to the frontend via Redis and optionally store in state.
+    
+    Args:
+        session_id: The current session ID
+        agent_name: Name of the agent sending the update
+        data: Payload data to stream
+        state: Optional TravelState to also store update locally
+    """
     update = {
         "timestamp": datetime.utcnow().isoformat(),
         "agent": agent_name,
-        "type": update_type,
         "data": data
     }
-    state["streaming_updates"].append(update)
-    return state
 
+    # Append to state if provided (for history/logging)
+    if state is not None:
+        state["streaming_updates"].append(update)
+
+    # Publish to Redis for real-time frontend streaming
+    # Get the Redis client instance instead of using the module
+    redis_instance = get_redis_client()
+    await redis_instance.publish(
+        RedisChannels.get_streaming_channel(session_id),
+        update
+    )
 
 def is_workflow_complete(state: TravelState) -> bool:
     """Check if all required agents have completed"""

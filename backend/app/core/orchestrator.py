@@ -368,10 +368,12 @@ class TravelOrchestrator:
             # Send streaming update
             if update_payload:
                 await add_streaming_update(
-                    state["session_id"],
-                    agent_name,
-                    update_payload
+                    session_id=state["session_id"],
+                    agent_name=agent_name,
+                    data=update_payload,
+                    state=state  # optional, if you want to keep updates in TravelState
                 )
+
             
             # Update status
             state = update_agent_status(state, agent_name, AgentStatus.COMPLETED)
@@ -476,6 +478,16 @@ class TravelOrchestrator:
                 state["itinerary_complete"] = True
                 state = update_agent_status(state, "itinerary", AgentStatus.COMPLETED)
                 self.logger.info("✅ Itinerary synthesis completed")
+
+                await add_streaming_update(
+                    session_id=session_id,
+                    agent_name="itinerary",
+                    data={
+                        "itinerary_data": state["itinerary_data"],
+                        "final_itinerary": state["final_itinerary"]
+                    },
+                    state=state
+                )
             else:
                 error = response_data.get("error", "Unknown error") if response_data else "Timeout"
                 state = update_agent_status(state, "itinerary", AgentStatus.FAILED, error_message=error)
