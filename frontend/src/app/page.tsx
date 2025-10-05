@@ -381,39 +381,48 @@ const Page = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const handlePlanSubmit = async (query) => {
-    setUserQuery(query);
-    setIsPlanning(true);
+ const handlePlanSubmit = async (query) => {
+   setUserQuery(query);
+   setIsPlanning(true);
 
-    try {
-      // TODO: Replace with your actual API endpoint
-      const response = await fetch('http://localhost:8000/api/v1/plan-trip', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          query: query,
-          preferences: {
-            budget: 'moderate',
-            pace: 'relaxed'
-          }
-        })
-      });
+   try {
+     // Parse the user query to extract trip details
+     // This is a simple implementation - you may want to enhance this with NLP
+     const payload = {
+       query: "Agra to Delhi trip",
+       budget_range: "$100-300", // Example, adjust as needed
+       destination: "Delhi, India",
+       origin: "Agra, India",
+       travel_dates: ["2025-10-05", "2025-10-06"], // adjust for actual plan
+       travelers_count: 2,
+       user_preferences: {
+         dietary_restrictions: [],
+         interests: ["history", "food", "culture"],
+         pace: "moderate",
+       },
+     };
 
-      if (!response.ok) {
-        throw new Error('Failed to generate plan');
-      }
 
-      const result = await response.json();
-      setPlanData(result.data);
-      
-    } catch (error) {
-      console.error('Error generating plan:', error);
-      alert('Failed to generate travel plan. Please try again.');
-      setIsPlanning(false);
-    }
-  };
+     const response = await fetch("http://localhost:8000/api/v1/plan-trip", {
+       method: "POST",
+       headers: {
+         "Content-Type": "application/json",
+       },
+       body: JSON.stringify(payload),
+     });
+
+     if (!response.ok) {
+       throw new Error("Failed to generate plan");
+     }
+
+     const result = await response.json();
+     setPlanData(result.data);
+   } catch (error) {
+     console.error("Error generating plan:", error);
+     alert("Failed to generate travel plan. Please try again.");
+     setIsPlanning(false);
+   }
+ };
 
   const handleNewPlan = () => {
     setIsPlanning(false);

@@ -6,7 +6,7 @@ services:
     build:
       context: .
       dockerfile: deployment/docker/Dockerfile
-    container_name: ringmaster-api
+    container_name: TBuddy-api
     ports:
       - "8000:8000"
     environment:
@@ -21,7 +21,7 @@ services:
       - ./app:/app/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     networks:
-      - ringmaster-network
+      - TBuddy-network
     depends_on:
       - weather-worker
       - events-worker
@@ -52,7 +52,7 @@ services:
       - ./app:/app/app
     command: python -m app.workers.weather_worker
     networks:
-      - ringmaster-network
+      - TBuddy-network
     restart: unless-stopped
     deploy:
       replicas: 1
@@ -73,7 +73,7 @@ services:
       - ./app:/app/app
     command: python -m app.workers.events_worker
     networks:
-      - ringmaster-network
+      - TBuddy-network
     restart: unless-stopped
     deploy:
       replicas: 1
@@ -94,7 +94,7 @@ services:
       - ./app:/app/app
     command: python -m app.workers.maps_worker
     networks:
-      - ringmaster-network
+      - TBuddy-network
     restart: unless-stopped
     deploy:
       replicas: 1
@@ -115,7 +115,7 @@ services:
       - ./app:/app/app
     command: python -m app.workers.budget_worker
     networks:
-      - ringmaster-network
+      - TBuddy-network
     restart: unless-stopped
     deploy:
       replicas: 1
@@ -136,13 +136,13 @@ services:
       - ./app:/app/app
     command: python -m app.workers.itinerary_worker
     networks:
-      - ringmaster-network
+      - TBuddy-network
     restart: unless-stopped
     deploy:
       replicas: 1
 
 networks:
-  ringmaster-network:
+  TBuddy-network:
     driver: bridge
 
 # Note: Using Upstash Redis (cloud), so no local Redis container needed
@@ -151,11 +151,11 @@ networks:
 # services:
 #   redis:
 #     image: redis:7-alpine
-#     container_name: ringmaster-redis
+#     container_name: TBuddy-redis
 #     ports:
 #       - "6379:6379"
 #     networks:
-#       - ringmaster-network
+#       - TBuddy-network
 #     command: redis-server --appendonly yes
 #     volumes:
 #       - redis-data:/data

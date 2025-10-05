@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-from app.core.state import WeatherInfo, RouteInfo, BudgetBreakdown, ItineraryDay
+from app.core.state import EventInfo, WeatherInfo, RouteInfo, BudgetBreakdown, ItineraryDay
 
 
 class TravelPlanResponse(BaseModel):
