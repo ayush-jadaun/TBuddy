@@ -343,7 +343,16 @@ class TravelOrchestrator:
                 }
 
             elif agent_name == "maps":
-                state["route_data"] = data.get("primary_route")
+                state["route_data"] = {
+                    "primary_route": data.get("primary_route"),
+                    "alternative_routes": data.get("alternative_routes"),
+                    "route_analysis": data.get("route_analysis"),
+                    "recommended_mode": data.get("recommended_mode"),
+                    "comparison": data.get("comparison"),
+                    "travel_options": data.get("travel_options"),
+                    "origin": data.get("origin"),
+                    "destination": data.get("destination")
+                }
                 state["maps_complete"] = True
                 update_payload = {
                     "route_data": state["route_data"]
@@ -574,7 +583,8 @@ class TravelOrchestrator:
         travelers_count: int = 1,
         budget_range: Optional[str] = None,
         user_preferences: Optional[Dict[str, Any]] = None,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        include_travel_options: bool = False  # fixed typo
     ) -> TravelState:
         """
         Plan a trip using the orchestrated agent workflow
@@ -587,6 +597,7 @@ class TravelOrchestrator:
             budget_range: Budget range (e.g., "$1000-2000")
             user_preferences: User preferences dict
             session_id: Optional session ID for resuming
+            include_travel_options: Whether to fetch flights, trains, buses, and hotels
             
         Returns:
             Final TravelState with all results
@@ -625,12 +636,16 @@ class TravelOrchestrator:
                 from app.core.state import UserPreferences
                 prefs = UserPreferences(**user_preferences)
                 initial_state["user_preferences"] = prefs.dict()
+
+            # Save the include_travel_options flag in state so workflow can access it
+            initial_state["include_travel_options"] = include_travel_options
             
             self.logger.info(
                 f"🎪 Starting travel planning workflow\n"
                 f"   Session: {initial_state['session_id']}\n"
                 f"   Destination: {destination}\n"
-                f"   Dates: {', '.join(travel_dates)}"
+                f"   Dates: {', '.join(travel_dates)}\n"
+                f"   Include Travel Options: {include_travel_options}"
             )
             
             # Run the workflow
@@ -642,7 +657,7 @@ class TravelOrchestrator:
         except Exception as e:
             self.logger.error(f"Workflow failed: {str(e)}", exc_info=True)
             raise
-    
+        
     async def get_session_state(self, session_id: str) -> Optional[TravelState]:
         """Get state for a session"""
         return await self.redis_client.get_state(session_id)

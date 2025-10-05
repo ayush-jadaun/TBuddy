@@ -1,15 +1,21 @@
-from pydantic import BaseModel
+
+# ============================================
+# RESPONSE SCHEMAS
+# ============================================
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any
-from app.core.state import EventInfo, WeatherInfo, RouteInfo, BudgetBreakdown, ItineraryDay
+from datetime import date, datetime
+from app.core.state import EventInfo, WeatherInfo, RouteInfo, RouteData, BudgetBreakdown, ItineraryDay
 
 
 class TravelPlanResponse(BaseModel):
-    """Response model for complete travel plan"""
+    """Response model for complete travel plan with enhanced route data"""
     success: bool
     message: str
     trip_summary: Optional[str] = None
     weather: Optional[List[WeatherInfo]] = None
-    route: Optional[RouteInfo] = None
+    weather_summary: Optional[str] = None
+    route: Optional[RouteData] = None  # CHANGED: Now uses RouteData instead of RouteInfo
     budget: Optional[BudgetBreakdown] = None
     itinerary: Optional[List[ItineraryDay]] = None
     errors: List[str] = []
@@ -20,13 +26,14 @@ class WeatherResponse(BaseModel):
     """Response model for weather data"""
     success: bool
     data: Optional[List[WeatherInfo]] = None
+    weather_summary: Optional[str] = None
     error: Optional[str] = None
 
 
 class RouteResponse(BaseModel):
-    """Response model for route data"""
+    """Response model for enhanced route data"""
     success: bool
-    data: Optional[RouteInfo] = None
+    data: Optional[RouteData] = None  # CHANGED: Now uses RouteData
     error: Optional[str] = None
 
 
@@ -64,7 +71,6 @@ class StatusResponse(BaseModel):
     timestamp: str
     agents: Dict[str, str]
     available_features: List[str]
-
 
 
 class EventResponse(BaseModel):

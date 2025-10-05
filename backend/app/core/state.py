@@ -29,6 +29,7 @@ class WorkflowStatus(str, Enum):
     FAILED = "failed"
     PARTIAL = "partial"
 
+
 class AirPollutionInfo(BaseModel):
     aqi: Optional[float] = None
     co: Optional[float] = None
@@ -39,6 +40,7 @@ class AirPollutionInfo(BaseModel):
     pm2_5: Optional[float] = None
     pm10: Optional[float] = None
     nh3: Optional[float] = None
+
 
 class WeatherInfo(BaseModel):
     """Weather information structure"""
@@ -59,6 +61,18 @@ class RouteInfo(BaseModel):
     steps: List[str]
     traffic_info: Optional[str] = None
     transport_mode: str = "driving"
+
+
+class RouteData(BaseModel):
+    """Enhanced route data structure with all transport modes and options"""
+    primary_route: Optional[Dict[str, Any]] = None
+    alternative_routes: Optional[Dict[str, Dict[str, Any]]] = None  # mode -> RouteInfo dict
+    route_analysis: Optional[str] = None
+    recommended_mode: Optional[str] = None
+    comparison: Optional[Dict[str, Dict[str, str]]] = None
+    origin: Optional[str] = None
+    destination: Optional[str] = None
+    travel_options: Optional[Dict[str, Any]] = None  # flights, trains, buses, hotels
 
 
 class BudgetBreakdown(BaseModel):
@@ -146,6 +160,7 @@ class TravelState(TypedDict):
     travelers_count: int
     budget_range: Optional[str]
     user_preferences: Optional[Dict[str, Any]]  # Serialized UserPreferences
+    include_travel_options: bool  # NEW: Whether to fetch flights, trains, etc.
     
     # Agent Execution Tracking
     agent_status: Dict[str, Dict[str, Any]]  # agent_name -> AgentMetadata dict
@@ -153,8 +168,9 @@ class TravelState(TypedDict):
     
     # Agent Outputs
     weather_data: Optional[List[Dict[str, Any]]]  # Serialized WeatherInfo list
+    weather_summary: Optional[str]  # NEW: Weather summary text
     events_data: Optional[List[Dict[str, Any]]]  # Serialized EventInfo list
-    route_data: Optional[Dict[str, Any]]  # Serialized RouteInfo
+    route_data: Optional[Dict[str, Any]]  # ENHANCED: Now contains full RouteData structure
     budget_data: Optional[Dict[str, Any]]  # Serialized BudgetBreakdown
     itinerary_data: Optional[List[Dict[str, Any]]]  # Serialized ItineraryDay list
     
@@ -187,7 +203,8 @@ def create_initial_state(
     travelers_count: int = 1,
     budget_range: Optional[str] = None,
     user_preferences: Optional[UserPreferences] = None,
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None,
+    include_travel_options: bool = False
 ) -> TravelState:
     """Create initial state for the travel planning workflow"""
     
@@ -220,6 +237,7 @@ def create_initial_state(
         travelers_count=travelers_count,
         budget_range=budget_range,
         user_preferences=user_preferences.dict() if user_preferences else None,
+        include_travel_options=include_travel_options,
         
         # Agent Tracking
         agent_status=agent_status,
@@ -227,8 +245,9 @@ def create_initial_state(
         
         # Outputs
         weather_data=None,
+        weather_summary=None,
         events_data=None,
-        route_data=None,
+        route_data=None,  # Will store full RouteData structure
         budget_data=None,
         itinerary_data=None,
         
@@ -260,7 +279,7 @@ def get_agent_timeout(agent_name: str) -> int:
     timeouts = {
         "weather": 100000,   # 100s
         "events": 150000,    # 150s
-        "maps": 120000,      # 120s
+        "maps": 120000,      # 120s (increased for travel options)
         "budget": 80000,     # 80s
         "itinerary": 200000  # 200s
     }
@@ -272,7 +291,7 @@ def update_agent_status(
     agent_name: str,
     status: AgentStatus,
     error_message: Optional[str] = None,
-    request_id: Optional[str] = None  # Add this parameter
+    request_id: Optional[str] = None
 ) -> TravelState:
     """Update the status of a specific agent"""
     
@@ -334,12 +353,12 @@ async def add_streaming_update(
         state["streaming_updates"].append(update)
 
     # Publish to Redis for real-time frontend streaming
-    # Get the Redis client instance instead of using the module
     redis_instance = get_redis_client()
     await redis_instance.publish(
         RedisChannels.get_streaming_channel(session_id),
         update
     )
+
 
 def is_workflow_complete(state: TravelState) -> bool:
     """Check if all required agents have completed"""
@@ -352,9 +371,35 @@ def is_workflow_complete(state: TravelState) -> bool:
 
 def serialize_state_for_redis(state: TravelState) -> str:
     """Serialize state to JSON for Redis storage"""
-    return json.dumps(state,default=str)
+    return json.dumps(state, default=str)
 
 
 def deserialize_state_from_redis(state_json: str) -> TravelState:
     """Deserialize state from Redis JSON"""
     return json.loads(state_json)
+
+
+def get_route_summary(state: TravelState) -> Optional[str]:
+    """Extract route summary from state for quick access"""
+    if not state.get("route_data"):
+        return None
+    
+    route_data = state["route_data"]
+    primary = route_data.get("primary_route")
+    
+    if not primary:
+        return None
+    
+    distance = primary.get("distance", "Unknown")
+    duration = primary.get("duration", "Unknown")
+    mode = route_data.get("recommended_mode", primary.get("transport_mode", "driving"))
+    
+    return f"{distance} in {duration} by {mode}"
+
+
+def has_travel_options(state: TravelState) -> bool:
+    """Check if state contains travel options data"""
+    if not state.get("route_data"):
+        return False
+    
+    return "travel_options" in state["route_data"]

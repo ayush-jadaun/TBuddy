@@ -1,6 +1,11 @@
-from pydantic import BaseModel, Field,field_validator
-from typing import List, Optional
+# ============================================
+# REQUEST SCHEMAS
+# ============================================
+
+from pydantic import BaseModel, Field, field_validator
+from typing import List, Optional, Dict, Any
 from datetime import date, datetime
+from app.core.state import EventInfo, WeatherInfo, RouteInfo, RouteData, BudgetBreakdown, ItineraryDay
 
 
 class TravelPlanRequest(BaseModel):
@@ -11,6 +16,7 @@ class TravelPlanRequest(BaseModel):
     travelers_count: int = Field(1, ge=1, le=20, description="Number of travelers")
     budget_range: Optional[str] = Field(None, description="Budget range (e.g., 'low', 'medium', 'high')")
     preferences: Optional[str] = Field(None, description="Additional preferences or requirements")
+    include_travel_options: bool = Field(False, description="Include flights, trains, buses, and hotels")
     
     @field_validator('travel_dates')
     def validate_dates(cls, v):
@@ -51,10 +57,23 @@ class WeatherRequest(BaseModel):
 
 
 class RouteRequest(BaseModel):
-    """Request model for route planning"""
+    """Request model for enhanced route planning"""
     origin: str
     destination: str
-    mode: str = "driving"  # driving, walking, transit, bicycling
+    transport_mode: str = Field("driving", description="Primary transport mode")
+    include_alternatives: bool = Field(True, description="Include alternative transport modes")
+    include_travel_options: bool = Field(False, description="Include flights, trains, buses, hotels")
+    travel_date: Optional[str] = Field(None, description="Travel date for flights/trains (YYYY-MM-DD)")
+    checkin_date: Optional[str] = Field(None, description="Hotel check-in date (YYYY-MM-DD)")
+    checkout_date: Optional[str] = Field(None, description="Hotel check-out date (YYYY-MM-DD)")
+    
+    @field_validator('transport_mode')
+    def validate_transport_mode(cls, v):
+        """Validate transport mode"""
+        valid_modes = ["driving", "walking", "cycling", "public_transport"]
+        if v not in valid_modes:
+            raise ValueError(f"Invalid transport mode. Must be one of: {valid_modes}")
+        return v
 
 
 class BudgetRequest(BaseModel):
@@ -64,8 +83,6 @@ class BudgetRequest(BaseModel):
     travel_dates: List[str]
     travelers_count: int
     budget_range: Optional[str] = None
-
-
 
 
 class EventRequest(BaseModel):

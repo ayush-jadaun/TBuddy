@@ -13,6 +13,9 @@ class Settings(BaseSettings):
 
     openroute_api_key: str
 
+    rapidapi_key: Optional[str] = None
+
+
     openweb_ninja_api_key: Optional[str] = None 
     openweb_ninja_base_url: str = "https://api.openwebninja.com/realtime-events-data/search-events"
     openweb_ninja_timeout: float = 30.0

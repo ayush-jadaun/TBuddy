@@ -15,6 +15,7 @@ services:
       - OPENROUTE_API_KEY=${OPENROUTE_API_KEY}
       - OPENWEB_NINJA_API_KEY=${OPENWEB_NINJA_API_KEY}
       - REDIS_URL=${REDIS_URL}
+      - RAPIDAPI_API_KEY=${RAPIDAPI_API_KEY}
       - DEBUG=true
       - STREAMING_ENABLED=true
     volumes:
@@ -46,6 +47,7 @@ services:
       - OPENROUTE_API_KEY=${OPENROUTE_API_KEY}
       - OPENWEB_NINJA_API_KEY=${OPENWEB_NINJA_API_KEY}
       - REDIS_URL=${REDIS_URL}
+      - RAPIDAPI_API_KEY=${RAPIDAPI_API_KEY}
       - WORKER_TYPE=weather
       - STREAMING_ENABLED=true
     volumes:
@@ -67,6 +69,7 @@ services:
       - OPENROUTE_API_KEY=${OPENROUTE_API_KEY}
       - OPENWEB_NINJA_API_KEY=${OPENWEB_NINJA_API_KEY}
       - REDIS_URL=${REDIS_URL}
+      - RAPIDAPI_API_KEY=${RAPIDAPI_API_KEY}
       - WORKER_TYPE=events
       - STREAMING_ENABLED=true
     volumes:
@@ -88,6 +91,7 @@ services:
       - OPENROUTE_API_KEY=${OPENROUTE_API_KEY}
       - OPENWEB_NINJA_API_KEY=${OPENWEB_NINJA_API_KEY}
       - REDIS_URL=${REDIS_URL}
+      - RAPIDAPI_API_KEY=${RAPIDAPI_API_KEY}
       - WORKER_TYPE=maps
       - STREAMING_ENABLED=true
     volumes:
@@ -109,6 +113,7 @@ services:
       - OPENROUTE_API_KEY=${OPENROUTE_API_KEY}
       - OPENWEB_NINJA_API_KEY=${OPENWEB_NINJA_API_KEY}
       - REDIS_URL=${REDIS_URL}
+      - RAPIDAPI_API_KEY=${RAPIDAPI_API_KEY}
       - WORKER_TYPE=budget
       - STREAMING_ENABLED=true
     volumes:
@@ -130,6 +135,7 @@ services:
       - OPENROUTE_API_KEY=${OPENROUTE_API_KEY}
       - OPENWEB_NINJA_API_KEY=${OPENWEB_NINJA_API_KEY}
       - REDIS_URL=${REDIS_URL}
+      - RAPIDAPI_API_KEY=${RAPIDAPI_API_KEY}
       - WORKER_TYPE=itinerary
       - STREAMING_ENABLED=true
     volumes:
@@ -144,21 +150,3 @@ services:
 networks:
   TBuddy-network:
     driver: bridge
-
-# Note: Using Upstash Redis (cloud), so no local Redis container needed
-# For local development with Redis, uncomment below:
-#
-# services:
-#   redis:
-#     image: redis:7-alpine
-#     container_name: TBuddy-redis
-#     ports:
-#       - "6379:6379"
-#     networks:
-#       - TBuddy-network
-#     command: redis-server --appendonly yes
-#     volumes:
-#       - redis-data:/data
-#
-# volumes:
-#   redis-data:

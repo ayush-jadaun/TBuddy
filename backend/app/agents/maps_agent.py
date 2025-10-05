@@ -24,24 +24,26 @@ class MapsAgent(BaseAgent):
     def get_system_prompt(self) -> str:
         """Get the system prompt for the maps agent"""
         return f"""
-        You are {self.name}, a {self.role}. Your role is to:
-        
-        1. Analyze route options between origin and destination
-        2. Compare different transportation modes (driving, walking, cycling)
-        3. Provide practical travel recommendations based on distance and duration
-        4. Suggest optimal transportation methods considering factors like time, cost, and convenience
-        5. Identify potential travel challenges or considerations
-        
-        Expertise: {self.expertise}
-        
-        Always provide practical, actionable route advice that helps travelers make informed decisions.
-        Be concise but informative. Focus on how route choices will impact the overall travel experience.
-        
-        When given route data, create a brief analysis that includes:
-        - Recommended transportation mode and reasoning
-        - Journey overview with key details
-        - Any notable considerations or tips
-        - Alternative options if relevant
+You are {self.name}, a {self.role}. Your role is to:
+
+1. Analyze route options between origin and destination
+2. Compare different transportation modes (driving, walking, cycling)
+3. Provide practical travel recommendations based on distance and duration
+4. Suggest optimal transportation methods considering factors like time, cost, and convenience
+5. Identify potential travel challenges or considerations
+
+Expertise: {self.expertise}
+
+Always provide practical, actionable route advice that helps travelers make informed decisions.
+Be concise but informative. Focus on how route choices will impact the overall travel experience.
+
+When given route data, create a brief analysis that includes:
+- Recommended transportation mode and reasoning
+- Journey overview with key details
+- Any notable considerations or tips
+- Alternative options if relevant
+
+Keep responses brief - 2-3 sentences maximum unless more detail is specifically requested.
         """
     
     async def handle_request(self, request: MCPMessage) -> Dict[str, Any]:
@@ -52,22 +54,30 @@ class MapsAgent(BaseAgent):
         {
             "origin": "New Delhi, India",
             "destination": "Agra, India",
-            "transport_mode": "driving"  # optional, defaults to "driving"
+            "transport_mode": "driving",  # optional, default: "driving"
+            "include_alternatives": true,  # optional, default: true
+            "include_travel_options": false,  # optional, default: false
+            "travel_date": "2025-07-01",  # required if include_travel_options=true
+            "checkin_date": "2025-07-01",  # optional
+            "checkout_date": "2025-07-05"  # optional
         }
         
         Returns:
         {
-            "primary_route": {...},
-            "alternative_routes": {...},
-            "route_analysis": "...",
+            "primary_route": RouteInfo dict,
+            "alternative_routes": {mode: RouteInfo dict},
+            "route_analysis": "LLM-generated insights",
             "recommended_mode": "driving",
-            "comparison": {...}
+            "comparison": {mode: {distance, duration, mode}},
+            "travel_options": {...}  # if requested
         }
         """
         payload = request.payload
         origin = payload.get("origin")
         destination = payload.get("destination")
         transport_mode = payload.get("transport_mode", "driving")
+        include_alternatives = payload.get("include_alternatives", True)
+        include_travel_options = payload.get("include_travel_options", False)
         
         # Validate required fields
         if not origin:
@@ -82,7 +92,7 @@ class MapsAgent(BaseAgent):
             request.session_id,
             "progress",
             f"Calculating route from {origin} to {destination}",
-            progress_percent=25
+            progress_percent=20
         )
         
         # Get primary route
@@ -93,31 +103,68 @@ class MapsAgent(BaseAgent):
         )
         
         if not primary_route:
-            # Create fallback route
-            primary_route = self._create_fallback_route_info_dict(origin, destination, transport_mode)
+            self.log_error("Primary route fetch failed", "Using fallback")
+            primary_route = self._create_fallback_route_info(origin, destination, transport_mode)
         
-        # Send progress update
-        await self._send_streaming_update(
-            request.session_id,
-            "progress",
-            "Analyzing alternative transportation options",
-            progress_percent=50
-        )
+        result = {
+            "primary_route": primary_route.dict(),
+            "origin": origin,
+            "destination": destination,
+            "requested_mode": transport_mode
+        }
         
-        # Get alternative routes
-        alternative_routes = await self._get_alternative_routes_for_request(
-            origin, destination, transport_mode
-        )
+        # Get alternative routes if requested
+        alternative_routes = {}
+        if include_alternatives:
+            await self._send_streaming_update(
+                request.session_id,
+                "progress",
+                "Analyzing alternative transportation options",
+                progress_percent=40
+            )
+            
+            alternative_routes = await self._get_alternative_routes_for_request(
+                origin, destination, transport_mode
+            )
+            
+            result["alternative_routes"] = {
+                mode: (route.dict() if route else None)
+                for mode, route in alternative_routes.items()
+            }
         
-        # Send progress update
+        # Get travel options if requested (flights, trains, buses, hotels)
+        if include_travel_options:
+            await self._send_streaming_update(
+                request.session_id,
+                "progress",
+                "Fetching travel options (flights, trains, buses, hotels)",
+                progress_percent=60
+            )
+            
+            travel_date = payload.get("travel_date")
+            checkin = payload.get("checkin_date")
+            checkout = payload.get("checkout_date")
+            
+            if not travel_date:
+                self.log_error("Travel options requested but no travel_date provided", "Skipping")
+            else:
+                travel_options = await self.maps_service.get_travel_options(
+                    origin=origin,
+                    destination=destination,
+                    date=travel_date,
+                    checkin=checkin,
+                    checkout=checkout
+                )
+                result["travel_options"] = travel_options
+        
+        # Generate analysis
         await self._send_streaming_update(
             request.session_id,
             "progress",
             "Generating route recommendations",
-            progress_percent=75
+            progress_percent=80
         )
         
-        # Generate route analysis using LLM
         route_analysis = await self._generate_route_insights_for_request(
             primary_route,
             alternative_routes,
@@ -125,36 +172,29 @@ class MapsAgent(BaseAgent):
             destination
         )
         
-        # Create comparison data
-        comparison = self._create_route_comparison(primary_route, alternative_routes)
+        result["route_analysis"] = route_analysis
+        result["recommended_mode"] = self._determine_recommended_mode(
+            primary_route, alternative_routes
+        )
+        result["comparison"] = self._create_route_comparison(
+            primary_route, alternative_routes
+        )
         
-        self.log_action("Route data retrieved", f"Primary: {transport_mode}, Alternatives: {len(alternative_routes)}")
+        self.log_action(
+            "Route data retrieved", 
+            f"Primary: {transport_mode}, Alternatives: {len(alternative_routes)}"
+        )
         
-        # Convert RouteInfo to dict if needed
-        primary_route_dict = primary_route.dict() if hasattr(primary_route, 'dict') else primary_route
-        alternative_routes_dict = {
-            mode: (route.dict() if hasattr(route, 'dict') else route)
-            for mode, route in alternative_routes.items()
-        }
-        
-        return {
-            "primary_route": primary_route_dict,
-            "alternative_routes": alternative_routes_dict,
-            "route_analysis": route_analysis,
-            "recommended_mode": self._determine_recommended_mode(primary_route, alternative_routes),
-            "comparison": comparison,
-            "origin": origin,
-            "destination": destination
-        }
+        return result
     
     async def process(self, state: TravelState) -> TravelState:
         """Legacy method - Process route information for the travel itinerary"""
         self.log_action("Starting route analysis", f"From {state['origin']} to {state['destination']}")
         
         try:
-            # Get primary route (driving by default) 
             transport_mode = state.get('preferred_transport', 'driving')
             
+            # Get primary route
             primary_route = await self.maps_service.get_route_between_locations(
                 origin=state['origin'],
                 destination=state['destination'],
@@ -162,13 +202,12 @@ class MapsAgent(BaseAgent):
             )
             
             if primary_route:
-                # Store primary route data in state
-                state['route_data'] = primary_route
+                state['route_data'] = primary_route.dict()
                 
-                # Get alternative transportation options (but don't fail if they don't work)
+                # Get alternative routes
                 alternative_routes = await self._get_alternative_routes(state)
                 
-                # Generate route insights using LLM
+                # Generate insights
                 route_analysis = await self._generate_route_insights(
                     primary_route, alternative_routes, state
                 )
@@ -180,9 +219,10 @@ class MapsAgent(BaseAgent):
                 
                 self.log_action("Route analysis completed successfully")
             else:
-                # Create fallback route information
-                fallback_route = self._create_fallback_route_info(state)
-                state['route_data'] = fallback_route
+                fallback_route = self._create_fallback_route_info(
+                    state['origin'], state['destination'], transport_mode
+                )
+                state['route_data'] = fallback_route.dict()
                 
                 self.add_message_to_state(
                     state,
@@ -195,37 +235,33 @@ class MapsAgent(BaseAgent):
             error_msg = f"Failed to get route information: {str(e)}"
             self.add_error_to_state(state, error_msg)
             
-            # Even with errors, try to provide basic route info
             try:
-                fallback_route = self._create_fallback_route_info(state)
-                state['route_data'] = fallback_route
+                fallback_route = self._create_fallback_route_info(
+                    state['origin'], state['destination'], 'driving'
+                )
+                state['route_data'] = fallback_route.dict()
             except:
-                pass  # If even fallback fails, continue without route data
+                pass
                 
         finally:
             state['maps_complete'] = True
             
         return state
     
-    def _create_fallback_route_info(self, state: TravelState) -> RouteInfo:
-        """Create basic route information when API calls fail (legacy)"""
+    def _create_fallback_route_info(
+        self, 
+        origin: str, 
+        destination: str, 
+        transport_mode: str
+    ) -> RouteInfo:
+        """Create basic route information when API calls fail"""
         return RouteInfo(
             distance="Distance calculation unavailable",
             duration="Duration estimation unavailable",
-            steps=[f"Travel from {state['origin']} to {state['destination']}"],
+            steps=[f"Travel from {origin} to {destination}"],
             traffic_info=None,
-            transport_mode=state.get('preferred_transport', 'driving')
+            transport_mode=transport_mode
         )
-    
-    def _create_fallback_route_info_dict(self, origin: str, destination: str, transport_mode: str) -> Dict[str, Any]:
-        """Create basic route information when API calls fail (MCP)"""
-        return {
-            "distance": "Distance calculation unavailable",
-            "duration": "Duration estimation unavailable",
-            "steps": [f"Travel from {origin} to {destination}"],
-            "traffic_info": None,
-            "transport_mode": transport_mode
-        }
     
     async def _get_alternative_routes_for_request(
         self,
@@ -236,7 +272,6 @@ class MapsAgent(BaseAgent):
         """Get alternative transportation routes for MCP request"""
         self.log_action("Fetching alternative transportation options")
         
-        # Get all modes except the primary one
         all_modes = ["driving", "walking", "cycling"]
         alternative_modes = [mode for mode in all_modes if mode != primary_mode]
         
@@ -252,6 +287,8 @@ class MapsAgent(BaseAgent):
             for mode, result in zip(alternative_modes, results):
                 if not isinstance(result, Exception) and result:
                     alternatives[mode] = result
+                else:
+                    alternatives[mode] = None
             
             return alternatives
             
@@ -261,84 +298,33 @@ class MapsAgent(BaseAgent):
     
     async def _get_alternative_routes(self, state: TravelState) -> Dict[str, Optional[RouteInfo]]:
         """Get alternative transportation routes (legacy)"""
-        self.log_action("Fetching alternative transportation options")
-        
-        try:
-            # Get routes for walking and cycling as alternatives
-            tasks = [
-                self.maps_service.get_route_between_locations(
-                    state['origin'], state['destination'], "walking"
-                ),
-                self.maps_service.get_route_between_locations(
-                    state['origin'], state['destination'], "cycling"
-                )
-            ]
-            
-            walking_route, cycling_route = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            alternatives = {}
-            
-            if not isinstance(walking_route, Exception) and walking_route:
-                alternatives["walking"] = walking_route
-            
-            if not isinstance(cycling_route, Exception) and cycling_route:
-                alternatives["cycling"] = cycling_route
-            
-            return alternatives
-            
-        except Exception as e:
-            self.log_error("Failed to get alternative routes", str(e))
-            return {}
+        primary_mode = state.get('preferred_transport', 'driving')
+        return await self._get_alternative_routes_for_request(
+            state['origin'],
+            state['destination'],
+            primary_mode
+        )
     
     async def _generate_route_insights_for_request(
         self,
-        primary_route: Any,
-        alternative_routes: Dict[str, Any],
+        primary_route: RouteInfo,
+        alternative_routes: Dict[str, Optional[RouteInfo]],
         origin: str,
         destination: str
     ) -> str:
-        """Generate route insights for MCP request"""
-        route_summary = self._format_routes_for_llm_from_data(primary_route, alternative_routes)
-        
-        user_input = f"""
-        Origin: {origin}
-        Destination: {destination}
-        
-        Route Analysis:
-        {route_summary}
-        
-        Please provide a concise route recommendation and travel analysis for this journey.
-        Consider factors like convenience, time efficiency, and practical considerations.
-        """
-        
-        try:
-            insights = await self.invoke_llm(self.get_system_prompt(), user_input)
-            return insights
-        except Exception as e:
-            self.log_error("Failed to generate route insights", str(e))
-            distance = primary_route.get('distance', 'N/A') if isinstance(primary_route, dict) else getattr(primary_route, 'distance', 'N/A')
-            duration = primary_route.get('duration', 'N/A') if isinstance(primary_route, dict) else getattr(primary_route, 'duration', 'N/A')
-            mode = primary_route.get('transport_mode', 'driving') if isinstance(primary_route, dict) else getattr(primary_route, 'transport_mode', 'driving')
-            return f"Primary route: {distance} in {duration} by {mode}"
-    
-    async def _generate_route_insights(
-        self, 
-        primary_route: RouteInfo,
-        alternative_routes: Dict[str, Optional[RouteInfo]], 
-        state: TravelState
-    ) -> str:
-        """Generate route insights using the LLM (legacy)"""
+        """Generate route insights using LLM for MCP request"""
         route_summary = self._format_routes_for_llm(primary_route, alternative_routes)
-        location_context = self.format_location_context(state)
         
         user_input = f"""
-        {location_context}
-        
-        Route Analysis:
-        {route_summary}
-        
-        Please provide a concise route recommendation and travel analysis for this journey.
-        Consider factors like convenience, time efficiency, and practical considerations.
+Origin: {origin}
+Destination: {destination}
+
+Route Analysis:
+{route_summary}
+
+Please provide a concise route recommendation and travel analysis for this journey.
+Consider factors like convenience, time efficiency, and practical considerations.
+Keep it brief - 2-3 sentences maximum.
         """
         
         try:
@@ -348,111 +334,80 @@ class MapsAgent(BaseAgent):
             self.log_error("Failed to generate route insights", str(e))
             return f"Primary route: {primary_route.distance} in {primary_route.duration} by {primary_route.transport_mode}"
     
-    def _format_routes_for_llm_from_data(
-        self,
-        primary_route: Any,
-        alternative_routes: Dict[str, Any]
+    async def _generate_route_insights(
+        self, 
+        primary_route: RouteInfo,
+        alternative_routes: Dict[str, Optional[RouteInfo]], 
+        state: TravelState
     ) -> str:
-        """Format route data for LLM consumption (works with dict or RouteInfo)"""
-        def get_attr(obj, key, default='N/A'):
-            if isinstance(obj, dict):
-                return obj.get(key, default)
-            return getattr(obj, key, default)
-        
-        primary_distance = get_attr(primary_route, 'distance')
-        primary_duration = get_attr(primary_route, 'duration')
-        primary_mode = get_attr(primary_route, 'transport_mode', 'driving')
-        primary_steps = get_attr(primary_route, 'steps', [])
-        
-        formatted_data = [f"""
-        PRIMARY ROUTE ({primary_mode.upper()}):
-        Distance: {primary_distance}
-        Duration: {primary_duration}
-        Transport: {primary_mode}
-        Key Steps: {'; '.join(primary_steps[:3]) if primary_steps else 'N/A'}
-        """]
-        
-        for mode, route in alternative_routes.items():
-            if route:
-                alt_distance = get_attr(route, 'distance')
-                alt_duration = get_attr(route, 'duration')
-                formatted_data.append(f"""
-        ALTERNATIVE ({mode.upper()}):
-        Distance: {alt_distance}
-        Duration: {alt_duration}
-        Transport: {mode}
-                """)
-        
-        return "\n".join(formatted_data)
+        """Generate route insights using the LLM (legacy)"""
+        return await self._generate_route_insights_for_request(
+            primary_route,
+            alternative_routes,
+            state['origin'],
+            state['destination']
+        )
     
     def _format_routes_for_llm(
         self, 
         primary_route: RouteInfo, 
         alternative_routes: Dict[str, Optional[RouteInfo]]
     ) -> str:
-        """Format route data for LLM consumption (legacy)"""
+        """Format route data for LLM consumption"""
         formatted_data = [f"""
-        PRIMARY ROUTE (Driving):
-        Distance: {primary_route.distance}
-        Duration: {primary_route.duration}
-        Transport: {primary_route.transport_mode}
-        Key Steps: {'; '.join(primary_route.steps[:3])}
+PRIMARY ROUTE ({primary_route.transport_mode.upper()}):
+Distance: {primary_route.distance}
+Duration: {primary_route.duration}
+Transport: {primary_route.transport_mode}
         """]
         
         for mode, route in alternative_routes.items():
             if route:
                 formatted_data.append(f"""
-        ALTERNATIVE ({mode.upper()}):
-        Distance: {route.distance}
-        Duration: {route.duration}
-        Transport: {route.transport_mode}
+ALTERNATIVE ({mode.upper()}):
+Distance: {route.distance}
+Duration: {route.duration}
+Transport: {route.transport_mode}
                 """)
         
         return "\n".join(formatted_data)
     
     def _determine_recommended_mode(
         self,
-        primary_route: Any,
-        alternative_routes: Dict[str, Any]
+        primary_route: RouteInfo,
+        alternative_routes: Dict[str, Optional[RouteInfo]]
     ) -> str:
-        """Determine the recommended transportation mode based on route data"""
-        # Simple heuristic: recommend primary if available, otherwise first alternative
+        """Determine the recommended transportation mode"""
         if primary_route:
-            mode = primary_route.get('transport_mode') if isinstance(primary_route, dict) else getattr(primary_route, 'transport_mode', 'driving')
-            return mode
+            return primary_route.transport_mode
         
         if alternative_routes:
-            return list(alternative_routes.keys())[0]
+            for mode, route in alternative_routes.items():
+                if route:
+                    return mode
         
         return "driving"
     
     def _create_route_comparison(
         self,
-        primary_route: Any,
-        alternative_routes: Dict[str, Any]
+        primary_route: RouteInfo,
+        alternative_routes: Dict[str, Optional[RouteInfo]]
     ) -> Dict[str, Dict[str, str]]:
         """Create a comparison summary of all routes"""
-        def get_attr(obj, key, default='N/A'):
-            if isinstance(obj, dict):
-                return obj.get(key, default)
-            return getattr(obj, key, default)
-        
         comparison = {}
         
-        # Add primary route
-        primary_mode = get_attr(primary_route, 'transport_mode', 'driving')
-        comparison[primary_mode] = {
-            "distance": get_attr(primary_route, 'distance'),
-            "duration": get_attr(primary_route, 'duration'),
-            "mode": primary_mode
-        }
+        if primary_route:
+            comparison[primary_route.transport_mode] = {
+                "distance": primary_route.distance,
+                "duration": primary_route.duration,
+                "mode": primary_route.transport_mode
+            }
         
-        # Add alternatives
         for mode, route in alternative_routes.items():
             if route:
                 comparison[mode] = {
-                    "distance": get_attr(route, 'distance'),
-                    "duration": get_attr(route, 'duration'),
+                    "distance": route.distance,
+                    "duration": route.duration,
                     "mode": mode
                 }
         
