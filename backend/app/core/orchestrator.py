@@ -309,7 +309,7 @@ class TravelOrchestrator:
                 state["events_data"] = data.get("events", [])
                 state["events_complete"] = True
             elif agent_name == "maps":
-                state["route_data"] = data.get("route_info")
+                state["route_data"] = data.get("primary_route")
                 state["maps_complete"] = True
             elif agent_name == "budget":
                 state["budget_data"] = data.get("budget_breakdown")
@@ -382,7 +382,7 @@ class TravelOrchestrator:
         )
         
         # Update agent status
-        state = update_agent_status(state, "itinerary", AgentStatus.PROCESSING)
+        state = update_agent_status(state, "itinerary", AgentStatus.PROCESSING,request_id=request.request_id)
         
         # Publish to itinerary request channel
         channel = RedisChannels.ITINERARY_REQUEST

@@ -10,7 +10,6 @@ from app.core.orchestrator import TravelOrchestrator
 from app.messaging.redis_client import get_redis_client, RedisChannels
 from app.core.state import UserPreferences
 import logging
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["orchestrator"])
