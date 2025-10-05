@@ -27,6 +27,16 @@ class WorkflowStatus(str, Enum):
     FAILED = "failed"
     PARTIAL = "partial"
 
+class AirPollutionInfo(BaseModel):
+    aqi: Optional[float] = None
+    co: Optional[float] = None
+    no: Optional[float] = None
+    no2: Optional[float] = None
+    o3: Optional[float] = None
+    so2: Optional[float] = None
+    pm2_5: Optional[float] = None
+    pm10: Optional[float] = None
+    nh3: Optional[float] = None
 
 class WeatherInfo(BaseModel):
     """Weather information structure"""
@@ -37,6 +47,7 @@ class WeatherInfo(BaseModel):
     humidity: int
     wind_speed: float
     precipitation_chance: int
+    air_pollution: Optional[AirPollutionInfo] = None
 
 
 class RouteInfo(BaseModel):

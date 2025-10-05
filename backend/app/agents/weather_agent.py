@@ -31,6 +31,7 @@ class WeatherAgent(BaseAgent):
         3. Suggest appropriate clothing and gear
         4. Warn about potential weather-related travel issues
         5. Recommend optimal times for outdoor activities
+        6. Advise travelers about air quality and pollution levels
         
         Expertise: {self.expertise}
         
@@ -223,6 +224,15 @@ class WeatherAgent(BaseAgent):
         formatted_data = []
         
         for weather in weather_data:
+            ap = weather.air_pollution
+            air_pollution_str = ""
+            if ap:
+                air_pollution_str = (
+                    f"Air Quality Index: {ap.aqi}\n"
+                    f"CO: {ap.co} ppm, NO: {ap.no} ppm, NO2: {ap.no2} ppm, "
+                    f"O3: {ap.o3} ppm, SO2: {ap.so2} ppm\n"
+                    f"PM2.5: {ap.pm2_5} µg/m³, PM10: {ap.pm10} µg/m³, NH3: {ap.nh3} µg/m³\n"
+             )
             formatted_data.append(f"""
             Date: {weather.date}
             Temperature: {weather.temperature_min}°C - {weather.temperature_max}°C
@@ -230,6 +240,7 @@ class WeatherAgent(BaseAgent):
             Humidity: {weather.humidity}%
             Wind Speed: {weather.wind_speed} m/s
             Chance of Rain: {weather.precipitation_chance}%
+             {air_pollution_str}
             """)
         
         return "\n".join(formatted_data)

@@ -89,7 +89,7 @@ class TravelOrchestrator:
         
         state["workflow_status"] = WorkflowStatus.ROUTING
         
-        # For now, we call all main agents (weather, events, maps, budget)
+
         # In a more advanced version, this could be LLM-driven based on user query
         agents_to_call = ["weather", "events", "maps", "budget"]
         
@@ -208,40 +208,62 @@ class TravelOrchestrator:
         self.logger.info(f"📡 Dispatched budget request to {channel}")
     
     async def _collect_responses_node(self, state: TravelState) -> TravelState:
-        """Collect responses from all agents"""
-        self.logger.info("📥 Collecting responses from agents")
-        
+        """Collect responses from all agents incrementally"""
+        self.logger.info("📥 Collecting responses from agents (incremental)")
+
         session_id = state["session_id"]
         agents = state["agents_to_execute"]
-        
-        # Subscribe to response channels
-        response_channels = {
-            agent: RedisChannels.get_response_channel(agent, session_id)
-            for agent in agents
-        }
-        
-        # Collect responses with timeout
-        responses = await self._wait_for_responses(
-            response_channels,
-            timeout=settings.orchestrator_timeout / 1000
-        )
-        
-        # Process each response
-        for agent_name, response_data in responses.items():
-            if response_data:
-                await self._process_agent_response(state, agent_name, response_data)
-            else:
-                # Timeout occurred
-                state = update_agent_status(state, agent_name, AgentStatus.TIMEOUT)
-                self.logger.warning(f"⏱️ Timeout waiting for {agent_name}")
-        
-        state["messages"].append(f"Collected responses from {len(responses)} agents")
+
+        # Prepare futures and subscriptions for each agent
+        responses = {agent: None for agent in agents}
+        futures = {agent: asyncio.Future() for agent in agents}
+        subscriptions = {}
+
+        async def create_handler(agent_name):
+            async def handler(data):
+                if not futures[agent_name].done():
+                    futures[agent_name].set_result(data)
+            return handler
+
+        # Subscribe to each agent's response channel
+        for agent in agents:
+            channel = RedisChannels.get_response_channel(agent, session_id)
+            subscriptions[agent] = await self.redis_client.subscribe(
+                channel, await create_handler(agent)
+            )
+
+        # Process responses as they come in
+        pending_agents = set(agents)
+        while pending_agents:
+            done, _ = await asyncio.wait(
+                [futures[agent] for agent in pending_agents],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+
+            for future in done:
+                agent_name = next(a for a in pending_agents if futures[a] == future)
+                response_data = future.result() if future.done() and not future.exception() else None
+
+                if response_data:
+                    await self._process_agent_response(state, agent_name, response_data)
+                    responses[agent_name] = response_data
+                else:
+                    state = update_agent_status(state, agent_name, AgentStatus.TIMEOUT)
+                    self.logger.warning(f"⏱️ Timeout waiting for {agent_name}")
+
+                pending_agents.remove(agent_name)
+
+        # Cleanup subscriptions
+        for subscription_id in subscriptions.values():
+            await self.redis_client.unsubscribe(subscription_id)
+
+        state["messages"].append(f"Collected responses from {len(responses)} agents incrementally")
         
         # Update state in Redis
-        await self.redis_client.set_state(state["session_id"], dict(state))
-        
+        await self.redis_client.set_state(session_id, dict(state))
+
         return state
-    
+
     async def _wait_for_responses(
         self,
         channels: Dict[str, str],
@@ -293,7 +315,7 @@ class TravelOrchestrator:
         agent_name: str,
         response_data: Dict[str, Any]
     ):
-        """Process response from an agent"""
+        """Process response from an agent and send streaming updates"""
         
         success = response_data.get("success", False)
         data = response_data.get("data")
@@ -301,19 +323,55 @@ class TravelOrchestrator:
         self.logger.debug(f"Processing {agent_name} response: success={success}, data_keys={data.keys() if data else None}")
         
         if success and data:
-            # Store agent data in state
+            # Store agent data and send streaming update
+            update_payload = {}
+            
             if agent_name == "weather":
                 state["weather_data"] = data.get("weather_forecast", [])
+                state["weather_summary"] = data.get("weather_summary", "")
                 state["weather_complete"] = True
+                update_payload = {
+                    "weather_summary": state["weather_summary"],
+                    "weather_data": state["weather_data"]
+                }
+
             elif agent_name == "events":
                 state["events_data"] = data.get("events", [])
                 state["events_complete"] = True
+                update_payload = {
+                    "events_data": state["events_data"]
+                }
+
             elif agent_name == "maps":
                 state["route_data"] = data.get("primary_route")
                 state["maps_complete"] = True
+                update_payload = {
+                    "route_data": state["route_data"]
+                }
+
             elif agent_name == "budget":
                 state["budget_data"] = data.get("budget_breakdown")
                 state["budget_complete"] = True
+                update_payload = {
+                    "budget_data": state["budget_data"]
+                }
+
+            elif agent_name == "itinerary":
+                state["itinerary_data"] = data.get("itinerary_days", [])
+                state["final_itinerary"] = data.get("itinerary_narrative", "")
+                state["itinerary_complete"] = True
+                update_payload = {
+                    "itinerary_data": state["itinerary_data"],
+                    "final_itinerary": state["final_itinerary"]
+                }
+
+            # Send streaming update
+            if update_payload:
+                await add_streaming_update(
+                    state["session_id"],
+                    agent_name,
+                    update_payload
+                )
             
             # Update status
             state = update_agent_status(state, agent_name, AgentStatus.COMPLETED)
