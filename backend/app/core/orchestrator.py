@@ -374,53 +374,62 @@ class TravelOrchestrator:
         """Synthesize final itinerary from all agent data"""
         self.logger.info("🎨 Synthesizing final itinerary")
         
-        # Dispatch request to itinerary agent
-        request = MessageFactory.create_itinerary_request(
-            session_id=state["session_id"],
-            travel_state=dict(state),
-            timeout_ms=settings.timeout_itinerary
-        )
+        session_id = state["session_id"]
+        response_channel = RedisChannels.get_response_channel("itinerary", session_id)
         
-        # Update agent status
-        state = update_agent_status(state, "itinerary", AgentStatus.PROCESSING,request_id=request.request_id)
+        # Subscribe to response channel with a queue
+        response_queue = asyncio.Queue()
         
-        # Publish to itinerary request channel
-        channel = RedisChannels.ITINERARY_REQUEST
-        await self.redis_client.publish(channel, request.dict())
+        async def handler(data):
+            await response_queue.put(data)
         
-        # Wait for itinerary response
-        response_channel = RedisChannels.get_response_channel(
-            "itinerary",
-            state["session_id"]
-        )
+        subscription_id = await self.redis_client.subscribe(response_channel, handler)
         
-        response_data = await self._wait_for_single_response(
-            response_channel,
-            timeout=settings.timeout_itinerary / 1000
-        )
+        # Wait for Redis subscription to fully activate (CHANGED: 50ms -> 200ms)
+        await asyncio.sleep(0.2)
         
-        if response_data and response_data.get("success"):
-            data = response_data.get("data", {})
-            state["itinerary_data"] = data.get("itinerary_days", [])
-            state["final_itinerary"] = data.get("itinerary_narrative", "")
-            state["itinerary_complete"] = True
-            state = update_agent_status(state, "itinerary", AgentStatus.COMPLETED)
-            self.logger.info("✅ Itinerary synthesis completed")
-        else:
-            error = response_data.get("error", "Unknown error") if response_data else "Timeout"
-            state = update_agent_status(
-                state, 
-                "itinerary", 
-                AgentStatus.FAILED,
-                error_message=error
+        try:
+            # Create and publish request
+            request = MessageFactory.create_itinerary_request(
+                session_id=session_id,
+                travel_state=dict(state),
+                timeout_ms=settings.timeout_itinerary
             )
-            self.logger.error(f"❌ Itinerary synthesis failed: {error}")
+            
+            state = update_agent_status(state, "itinerary", AgentStatus.PROCESSING, request_id=request.request_id)
+            
+            channel = RedisChannels.ITINERARY_REQUEST
+            await self.redis_client.publish(channel, request.dict())
+            
+            # Wait for response with timeout
+            try:
+                response_data = await asyncio.wait_for(
+                    response_queue.get(),
+                    timeout=settings.timeout_itinerary / 1000
+                )
+            except asyncio.TimeoutError:
+                response_data = None
+            
+            # Process response
+            if response_data and response_data.get("success"):
+                data = response_data.get("data", {})
+                state["itinerary_data"] = data.get("itinerary_days", [])
+                state["final_itinerary"] = data.get("itinerary_narrative", "")
+                state["itinerary_complete"] = True
+                state = update_agent_status(state, "itinerary", AgentStatus.COMPLETED)
+                self.logger.info("✅ Itinerary synthesis completed")
+            else:
+                error = response_data.get("error", "Unknown error") if response_data else "Timeout"
+                state = update_agent_status(state, "itinerary", AgentStatus.FAILED, error_message=error)
+                self.logger.error(f"❌ Itinerary synthesis failed: {error}")
+            
+        finally:
+            await self.redis_client.unsubscribe(subscription_id)
         
-        # Update state in Redis
         await self.redis_client.set_state(state["session_id"], dict(state))
-        
         return state
-    
+
+
     async def _wait_for_single_response(
         self,
         channel: str,

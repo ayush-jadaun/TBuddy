@@ -1,444 +1,822 @@
-"use client";
-import React, { useState, useRef, useEffect } from "react";
-import { Send, Loader2, CheckCircle, XCircle, RotateCcw } from "lucide-react";
+'use client'
+import { useState, useEffect, memo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 
-// Types
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-  timestamp: string;
-}
+const HyperspeedBackground = memo(function HyperspeedBackground() {
+  return (
+    <div className="absolute inset-0 pointer-events-none opacity-30">
+      <div className="w-full h-full bg-gradient-to-br from-red-900/10 via-black to-amber-900/10" />
+    </div>
+  );
+});
 
-interface CollectedInfo {
-  destination?: string;
-  origin?: string;
-  travel_dates?: string[];
-  travelers_count?: number;
-  budget_range?: string;
-  user_preferences?: {
-    interests?: string[];
-    pace?: string;
-    dietary_restrictions?: string[];
+const titles = [
+  "Where planning is Spontaneous",
+  "Less Google, More Goggles",
+  "Plan less, Chill more",
+];
+
+const TravelPlannerForm = ({ onSubmit }) => {
+  const [formData, setFormData] = useState({
+    destination: "",
+    origin: "",
+    travel_dates: ["", ""],
+    travelers_count: 1,
+    budget_range: "",
+    interests: [],
+    pace: "moderate",
+    dietary_restrictions: [],
+    accessibility_needs: [],
+    group_type: "solo",
+  });
+
+  const interestOptions = [
+    "art",
+    "food",
+    "history",
+    "nature",
+    "adventure",
+    "culture",
+    "shopping",
+    "nightlife",
+  ];
+  const dietaryOptions = [
+    "vegetarian",
+    "vegan",
+    "gluten-free",
+    "halal",
+    "kosher",
+    "none",
+  ];
+  const accessibilityOptions = [
+    "wheelchair",
+    "visual",
+    "hearing",
+    "mobility",
+    "none",
+  ];
+
+  const handleChange = (field, value) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
-}
 
-interface ChatResponse {
-  session_id: string;
-  message: string;
-  stage: string;
-  collected_info: CollectedInfo;
-  missing_fields: string[];
-  is_ready: boolean;
-  suggestions?: string[];
-}
-
-interface TripPlanResponse {
-  success: boolean;
-  message: string;
-  session_id: string;
-  trip_plan_status?: string;
-  data?: any;
-  error?: string;
-}
-
-const API_BASE_URL = "http://localhost:8000/api/v1/chat";
-
-export default function TravelChatPage() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const [sessionId, setSessionId] = useState<string>("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [collectedInfo, setCollectedInfo] = useState<CollectedInfo>({});
-  const [stage, setStage] = useState("greeting");
-  const [missingFields, setMissingFields] = useState<string[]>([]);
-  const [isReadyToPlan, setIsReadyToPlan] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [tripPlan, setTripPlan] = useState<any>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const handleDateChange = (index, value) => {
+    const newDates = [...formData.travel_dates];
+    newDates[index] = value;
+    setFormData((prev) => ({ ...prev, travel_dates: newDates }));
   };
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  const addDate = () => {
+    setFormData((prev) => ({
+      ...prev,
+      travel_dates: [...prev.travel_dates, ""],
+    }));
+  };
 
-  const sendMessage = async () => {
-    if (!input.trim()) return;
-
-    const userMessage: Message = {
-      role: "user",
-      content: input,
-      timestamp: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/message`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: input,
-          session_id: sessionId || undefined,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data: ChatResponse = await response.json();
-
-      // Update session ID if new
-      if (!sessionId) {
-        setSessionId(data.session_id);
-      }
-
-      // Add assistant message
-      const assistantMessage: Message = {
-        role: "assistant",
-        content: data.message,
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-
-      // Update state
-      setCollectedInfo(data.collected_info);
-      setStage(data.stage);
-      setMissingFields(data.missing_fields);
-      setIsReadyToPlan(data.is_ready);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send message");
-      console.error("Error sending message:", err);
-    } finally {
-      setIsLoading(false);
+  const removeDate = (index) => {
+    if (formData.travel_dates.length > 2) {
+      const newDates = formData.travel_dates.filter((_, i) => i !== index);
+      setFormData((prev) => ({ ...prev, travel_dates: newDates }));
     }
   };
 
-  const confirmAndPlan = async () => {
-    if (!sessionId || !isReadyToPlan) return;
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/confirm`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          session_id: sessionId,
-          confirmed: true,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data: TripPlanResponse = await response.json();
-
-      if (data.success) {
-        setTripPlan(data.data);
-        const successMessage: Message = {
-          role: "assistant",
-          content: `🎉 ${data.message}\n\nYour trip plan has been created! Check the Trip Plan section below.`,
-          timestamp: new Date().toISOString(),
-        };
-        setMessages((prev) => [...prev, successMessage]);
-      } else {
-        throw new Error(data.error || "Failed to create trip plan");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to confirm trip");
-      console.error("Error confirming trip:", err);
-    } finally {
-      setIsLoading(false);
-    }
+  const toggleMultiSelect = (field, value) => {
+    setFormData((prev) => {
+      const current = prev[field];
+      const newValue = current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value];
+      return { ...prev, [field]: newValue };
+    });
   };
 
-  const resetConversation = async () => {
-    if (!sessionId) {
-      // Just reset local state
-      setMessages([]);
-      setCollectedInfo({});
-      setStage("greeting");
-      setMissingFields([]);
-      setIsReadyToPlan(false);
-      setTripPlan(null);
+  const handleSubmit = (e) => {
+    e.preventDefault();
+
+    // Filter out empty dates and validate
+    const validDates = formData.travel_dates.filter((d) => d !== "");
+    if (validDates.length < 1) {
+      alert("Please add at least one travel date");
       return;
     }
 
-    try {
-      await fetch(`${API_BASE_URL}/session/${sessionId}`, {
-        method: "DELETE",
-      });
-    } catch (err) {
-      console.error("Error resetting conversation:", err);
-    }
+    const payload = {
+      destination: formData.destination,
+      origin: formData.origin,
+      travel_dates: validDates,
+      travelers_count: formData.travelers_count,
+      budget_range: formData.budget_range || undefined,
+      user_preferences: {
+        interests:
+          formData.interests.length > 0 ? formData.interests : undefined,
+        pace: formData.pace,
+        dietary_restrictions: formData.dietary_restrictions.filter(
+          (d) => d !== "none"
+        ),
+        accessibility_needs: formData.accessibility_needs.filter(
+          (a) => a !== "none"
+        ),
+        group_type: formData.group_type,
+      },
+    };
 
-    // Reset all state
-    setMessages([]);
-    setSessionId("");
-    setCollectedInfo({});
-    setStage("greeting");
-    setMissingFields([]);
-    setIsReadyToPlan(false);
-    setError(null);
-    setTripPlan(null);
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
+    onSubmit(payload);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="max-w-7xl mx-auto">
-        <div className="bg-white rounded-lg shadow-xl overflow-hidden">
-          {/* Header */}
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-6">
-            <h1 className="text-3xl font-bold">Travel Planning Assistant</h1>
-            <p className="text-blue-100 mt-2">
-              Let&apos;s plan your perfect trip together!
-            </p>
-            {sessionId && (
-              <p className="text-sm text-blue-200 mt-1">
-                Session: {sessionId.substring(0, 20)}...
-              </p>
-            )}
+    <motion.form
+      onSubmit={handleSubmit}
+      className="w-full max-w-4xl mx-auto p-8 bg-black/40 backdrop-blur-md border border-zinc-800/50 rounded-2xl"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <h2 className="text-3xl font-light text-zinc-100 mb-8 text-center">
+        Plan Your Journey
+      </h2>
+
+      {/* Required Fields */}
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-sm text-zinc-400 mb-2">
+              Origin <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={formData.origin}
+              onChange={(e) => handleChange("origin", e.target.value)}
+              className="w-full bg-zinc-900/50 border border-zinc-700 rounded-lg p-3 text-zinc-100 focus:outline-none focus:border-amber-400/50 focus:ring-2 focus:ring-amber-400/20"
+              placeholder="e.g., New York, USA"
+            />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6">
-            {/* Chat Section */}
-            <div className="lg:col-span-2 flex flex-col h-[600px]">
-              <div className="flex-1 overflow-y-auto bg-gray-50 rounded-lg p-4 mb-4 space-y-4">
-                {messages.length === 0 && (
-                  <div className="text-center text-gray-500 mt-8">
-                    <p className="text-lg">
-                      👋 Hi! I&apos;m your travel planning assistant.
-                    </p>
-                    <p className="mt-2">
-                      Tell me where you&apos;d like to go, and I&apos;ll help plan your
-                      trip!
-                    </p>
-                  </div>
-                )}
+          <div>
+            <label className="block text-sm text-zinc-400 mb-2">
+              Destination <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={formData.destination}
+              onChange={(e) => handleChange("destination", e.target.value)}
+              className="w-full bg-zinc-900/50 border border-zinc-700 rounded-lg p-3 text-zinc-100 focus:outline-none focus:border-amber-400/50 focus:ring-2 focus:ring-amber-400/20"
+              placeholder="e.g., Paris, France"
+            />
+          </div>
+        </div>
 
-                {messages.map((msg, idx) => (
-                  <div
-                    key={idx}
-                    className={`flex ${
-                      msg.role === "user" ? "justify-end" : "justify-start"
-                    }`}
-                  >
-                    <div
-                      className={`max-w-[80%] rounded-lg p-4 ${
-                        msg.role === "user"
-                          ? "bg-blue-600 text-white"
-                          : "bg-white border border-gray-200"
-                      }`}
-                    >
-                      <p className="whitespace-pre-wrap">{msg.content}</p>
-                      <p
-                        className={`text-xs mt-2 ${
-                          msg.role === "user"
-                            ? "text-blue-100"
-                            : "text-gray-400"
-                        }`}
-                      >
-                        {new Date(msg.timestamp).toLocaleTimeString()}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-
-                {isLoading && (
-                  <div className="flex justify-start">
-                    <div className="bg-white border border-gray-200 rounded-lg p-4">
-                      <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
-                    </div>
-                  </div>
-                )}
-
-                <div ref={messagesEndRef} />
-              </div>
-
-              {/* Error Display */}
-              {error && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 flex items-start">
-                  <XCircle className="w-5 h-5 text-red-600 mr-2 flex-shrink-0 mt-0.5" />
-                  <p className="text-red-800 text-sm">{error}</p>
-                </div>
-              )}
-
-              {/* Input Area */}
-              <div className="flex gap-2">
+        {/* Travel Dates */}
+        <div>
+          <label className="block text-sm text-zinc-400 mb-2">
+            Travel Dates <span className="text-red-500">*</span>
+          </label>
+          <div className="space-y-2">
+            {formData.travel_dates.map((date, index) => (
+              <div key={index} className="flex gap-2">
                 <input
-                  type="text"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  placeholder="Type your message..."
-                  disabled={isLoading}
-                  className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                  type="date"
+                  value={date}
+                  onChange={(e) => handleDateChange(index, e.target.value)}
+                  className="flex-1 bg-zinc-900/50 border border-zinc-700 rounded-lg p-3 text-zinc-100 focus:outline-none focus:border-amber-400/50"
                 />
-                <button
-                  onClick={sendMessage}
-                  disabled={isLoading || !input.trim()}
-                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-                >
-                  <Send className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={resetConversation}
-                  className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg hover:bg-gray-300 transition-colors"
-                  title="Reset conversation"
-                >
-                  <RotateCcw className="w-5 h-5" />
-                </button>
+                {formData.travel_dates.length > 2 && (
+                  <button
+                    type="button"
+                    onClick={() => removeDate(index)}
+                    className="px-3 bg-red-900/50 hover:bg-red-900/70 border border-red-800 rounded-lg text-zinc-300 transition-colors"
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={addDate}
+            className="mt-2 text-sm text-amber-400 hover:text-amber-300 transition-colors"
+          >
+            + Add another date
+          </button>
+        </div>
+
+        {/* Travelers Count and Budget */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-sm text-zinc-400 mb-2">
+              Number of Travelers <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="20"
+              required
+              value={formData.travelers_count}
+              onChange={(e) =>
+                handleChange("travelers_count", parseInt(e.target.value))
+              }
+              className="w-full bg-zinc-900/50 border border-zinc-700 rounded-lg p-3 text-zinc-100 focus:outline-none focus:border-amber-400/50"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm text-zinc-400 mb-2">
+              Budget Range (Optional)
+            </label>
+            <input
+              type="text"
+              value={formData.budget_range}
+              onChange={(e) => handleChange("budget_range", e.target.value)}
+              className="w-full bg-zinc-900/50 border border-zinc-700 rounded-lg p-3 text-zinc-100 focus:outline-none focus:border-amber-400/50"
+              placeholder="e.g., $1000-2000"
+            />
+          </div>
+        </div>
+
+        {/* Preferences Section */}
+        <div className="pt-6 border-t border-zinc-800">
+          <h3 className="text-xl font-light text-zinc-100 mb-4">
+            Preferences (Optional)
+          </h3>
+
+          {/* Interests */}
+          <div className="mb-6">
+            <label className="block text-sm text-zinc-400 mb-2">
+              Interests
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {interestOptions.map((interest) => (
+                <button
+                  key={interest}
+                  type="button"
+                  onClick={() => toggleMultiSelect("interests", interest)}
+                  className={`px-4 py-2 rounded-full text-sm transition-all ${
+                    formData.interests.includes(interest)
+                      ? "bg-amber-600 text-white border-amber-500"
+                      : "bg-zinc-800/50 text-zinc-300 border-zinc-700 hover:border-amber-400"
+                  } border`}
+                >
+                  {interest}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Pace and Group Type */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div>
+              <label className="block text-sm text-zinc-400 mb-2">
+                Travel Pace
+              </label>
+              <select
+                value={formData.pace}
+                onChange={(e) => handleChange("pace", e.target.value)}
+                className="w-full bg-zinc-900/50 border border-zinc-700 rounded-lg p-3 text-zinc-100 focus:outline-none focus:border-amber-400/50"
+              >
+                <option value="relaxed">Relaxed</option>
+                <option value="moderate">Moderate</option>
+                <option value="packed">Packed</option>
+              </select>
             </div>
 
-            {/* Info Sidebar */}
-            <div className="space-y-4">
-              {/* Stage */}
-              <div className="bg-white border border-gray-200 rounded-lg p-4">
-                <h3 className="font-semibold text-gray-800 mb-2">
-                  Conversation Stage
-                </h3>
-                <span className="inline-block px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-                  {stage}
-                </span>
-              </div>
+            <div>
+              <label className="block text-sm text-zinc-400 mb-2">
+                Group Type
+              </label>
+              <select
+                value={formData.group_type}
+                onChange={(e) => handleChange("group_type", e.target.value)}
+                className="w-full bg-zinc-900/50 border border-zinc-700 rounded-lg p-3 text-zinc-100 focus:outline-none focus:border-amber-400/50"
+              >
+                <option value="solo">Solo</option>
+                <option value="couple">Couple</option>
+                <option value="family">Family</option>
+                <option value="friends">Friends</option>
+              </select>
+            </div>
+          </div>
 
-              {/* Collected Information */}
-              <div className="bg-white border border-gray-200 rounded-lg p-4">
-                <h3 className="font-semibold text-gray-800 mb-3">
-                  Collected Information
-                </h3>
-                <div className="space-y-2 text-sm">
-                  {collectedInfo.destination && (
-                    <div className="flex items-start">
-                      <CheckCircle className="w-4 h-4 text-green-600 mr-2 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <span className="font-medium">Destination:</span>
-                        <p className="text-gray-600">
-                          {collectedInfo.destination}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {collectedInfo.origin && (
-                    <div className="flex items-start">
-                      <CheckCircle className="w-4 h-4 text-green-600 mr-2 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <span className="font-medium">Origin:</span>
-                        <p className="text-gray-600">{collectedInfo.origin}</p>
-                      </div>
-                    </div>
-                  )}
-                  {collectedInfo.travel_dates && (
-                    <div className="flex items-start">
-                      <CheckCircle className="w-4 h-4 text-green-600 mr-2 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <span className="font-medium">Dates:</span>
-                        <p className="text-gray-600">
-                          {collectedInfo.travel_dates.join(" to ")}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {collectedInfo.travelers_count && (
-                    <div className="flex items-start">
-                      <CheckCircle className="w-4 h-4 text-green-600 mr-2 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <span className="font-medium">Travelers:</span>
-                        <p className="text-gray-600">
-                          {collectedInfo.travelers_count}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {collectedInfo.budget_range && (
-                    <div className="flex items-start">
-                      <CheckCircle className="w-4 h-4 text-green-600 mr-2 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <span className="font-medium">Budget:</span>
-                        <p className="text-gray-600">
-                          {collectedInfo.budget_range}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {Object.keys(collectedInfo).length === 0 && (
-                    <p className="text-gray-400 italic">
-                      No information collected yet
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Missing Fields */}
-              {missingFields.length > 0 && (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                  <h3 className="font-semibold text-yellow-800 mb-2">
-                    Still Need
-                  </h3>
-                  <ul className="space-y-1 text-sm">
-                    {missingFields.map((field, idx) => (
-                      <li key={idx} className="text-yellow-700">
-                        • {field.replace(/_/g, " ")}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Confirm Button */}
-              {isReadyToPlan && (
+          {/* Dietary Restrictions */}
+          <div className="mb-6">
+            <label className="block text-sm text-zinc-400 mb-2">
+              Dietary Restrictions
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {dietaryOptions.map((dietary) => (
                 <button
-                  onClick={confirmAndPlan}
-                  disabled={isLoading}
-                  className="w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors font-semibold"
+                  key={dietary}
+                  type="button"
+                  onClick={() =>
+                    toggleMultiSelect("dietary_restrictions", dietary)
+                  }
+                  className={`px-4 py-2 rounded-full text-sm transition-all ${
+                    formData.dietary_restrictions.includes(dietary)
+                      ? "bg-red-600 text-white border-red-500"
+                      : "bg-zinc-800/50 text-zinc-300 border-zinc-700 hover:border-red-400"
+                  } border`}
                 >
-                  {isLoading ? (
-                    <span className="flex items-center justify-center">
-                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                      Planning...
-                    </span>
-                  ) : (
-                    "✈️ Confirm & Plan Trip"
-                  )}
+                  {dietary}
                 </button>
-              )}
+              ))}
+            </div>
+          </div>
 
-              {/* Trip Plan Result */}
-              {tripPlan && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                  <h3 className="font-semibold text-green-800 mb-2">
-                    Trip Plan Created!
-                  </h3>
-                  <pre className="text-xs bg-white p-3 rounded overflow-auto max-h-64">
-                    {JSON.stringify(tripPlan, null, 2)}
-                  </pre>
-                </div>
-              )}
+          {/* Accessibility Needs */}
+          <div>
+            <label className="block text-sm text-zinc-400 mb-2">
+              Accessibility Needs
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {accessibilityOptions.map((access) => (
+                <button
+                  key={access}
+                  type="button"
+                  onClick={() =>
+                    toggleMultiSelect("accessibility_needs", access)
+                  }
+                  className={`px-4 py-2 rounded-full text-sm transition-all ${
+                    formData.accessibility_needs.includes(access)
+                      ? "bg-blue-600 text-white border-blue-500"
+                      : "bg-zinc-800/50 text-zinc-300 border-zinc-700 hover:border-blue-400"
+                  } border`}
+                >
+                  {access}
+                </button>
+              ))}
             </div>
           </div>
         </div>
+
+        {/* Submit Button */}
+        <button
+          type="submit"
+          className="w-full bg-gradient-to-r from-red-700 to-red-900 hover:from-red-600 hover:to-red-700 text-white py-4 rounded-xl transition-all duration-300 shadow-lg hover:shadow-red-500/50 text-lg font-medium mt-8"
+        >
+          Generate Travel Plan
+        </button>
+      </div>
+    </motion.form>
+  );
+};
+
+const LoadingState = () => {
+  const stages = [
+    { text: "Ringmaster is thinking", icon: "🎪" },
+    { text: "Analyzing your preferences", icon: "🔍" },
+    { text: "Checking weather conditions", icon: "🌤️" },
+    { text: "Finding the best routes", icon: "🗺️" },
+    { text: "Calculating your budget", icon: "💰" },
+    { text: "Crafting your perfect itinerary", icon: "✨" },
+  ];
+
+  const [currentStage, setCurrentStage] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentStage((prev) => (prev + 1) % stages.length);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="flex flex-col items-center justify-center space-y-8 min-h-screen">
+      <motion.div
+        className="relative"
+        animate={{ rotate: 360 }}
+        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+      >
+        <div className="w-20 h-20 border-4 border-red-900/30 border-t-red-500 rounded-full" />
+      </motion.div>
+
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={currentStage}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          className="text-center"
+        >
+          <div className="text-4xl mb-3">{stages[currentStage].icon}</div>
+          <div className="text-xl text-zinc-300 font-light">
+            {stages[currentStage].text}
+          </div>
+        </motion.div>
+      </AnimatePresence>
+
+      <div className="flex gap-2">
+        {stages.map((_, i) => (
+          <motion.div
+            key={i}
+            className={`h-1.5 rounded-full transition-all duration-300 ${
+              i === currentStage ? "w-8 bg-red-500" : "w-1.5 bg-zinc-700"
+            }`}
+          />
+        ))}
       </div>
     </div>
   );
-}
+};
+
+const ItineraryView = ({ data, formData }) => {
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: data.budget?.currency || "INR",
+      maximumFractionDigits: 0,
+    }).format(amount);
+  };
+
+  const getWeatherIcon = (description) => {
+    if (!description) return "🌤️";
+    if (description.includes("rain")) return "🌧️";
+    if (description.includes("cloud")) return "☁️";
+    if (description.includes("sun")) return "☀️";
+    return "🌤️";
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="w-full max-w-6xl mx-auto px-4 pb-20"
+    >
+      {/* Trip Summary */}
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="mb-8 p-6 bg-zinc-900/50 backdrop-blur-md border border-zinc-800 rounded-2xl"
+      >
+        <div className="flex items-start gap-4">
+          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 to-red-500 flex items-center justify-center text-white font-bold text-lg">
+            📍
+          </div>
+          <div className="flex-1">
+            <h3 className="text-2xl font-light text-zinc-100 mb-2">
+              {formData.origin} → {formData.destination}
+            </h3>
+            <div className="flex flex-wrap gap-4 text-sm text-zinc-400">
+              <span>
+                👥 {formData.travelers_count} traveler
+                {formData.travelers_count > 1 ? "s" : ""}
+              </span>
+              <span>📅 {formData.travel_dates.length} days</span>
+              {formData.budget_range && <span>💵 {formData.budget_range}</span>}
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Budget Overview */}
+      {data.budget && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="mb-8 p-6 bg-gradient-to-br from-red-900/20 to-amber-900/20 backdrop-blur-md border border-red-800/30 rounded-2xl"
+        >
+          <h3 className="text-xl font-light text-zinc-100 mb-4 flex items-center gap-2">
+            💰 Budget Breakdown
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-amber-400">
+                {formatCurrency(data.budget.total)}
+              </div>
+              <div className="text-sm text-zinc-400">Total</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg text-zinc-300">
+                {formatCurrency(data.budget.transportation)}
+              </div>
+              <div className="text-sm text-zinc-400">Transport</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg text-zinc-300">
+                {formatCurrency(data.budget.accommodation)}
+              </div>
+              <div className="text-sm text-zinc-400">Stay</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg text-zinc-300">
+                {formatCurrency(data.budget.food)}
+              </div>
+              <div className="text-sm text-zinc-400">Food</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg text-zinc-300">
+                {formatCurrency(data.budget.activities)}
+              </div>
+              <div className="text-sm text-zinc-400">Activities</div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+      {/* Events */}
+      {data.events && data.events.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25 }}
+          className="mb-8 p-6 bg-black/40 backdrop-blur-md border border-zinc-800/50 rounded-2xl"
+        >
+          <h3 className="text-xl font-light text-zinc-100 mb-4 flex items-center gap-2">
+            🎉 Local Events
+          </h3>
+          <div className="space-y-4">
+            {data.events.map((event, index) => (
+              <div
+                key={index}
+                className="p-4 bg-zinc-900/30 rounded-lg border border-zinc-800 hover:border-zinc-700 transition-colors"
+              >
+                <div className="flex justify-between items-start mb-2">
+                  <h4 className="text-lg text-zinc-200 font-medium">
+                    {event.name}
+                  </h4>
+                  <span className="text-xs px-2 py-1 bg-amber-900/30 text-amber-400 rounded-full">
+                    {event.category}
+                  </span>
+                </div>
+                <div className="space-y-1 text-sm text-zinc-400">
+                  <div className="flex items-center gap-2">
+                    <span>📅</span>
+                    <span>
+                      {event.date} at {event.time}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span>📍</span>
+                    <span>{event.venue}</span>
+                  </div>
+                  {event.description && (
+                    <p className="text-zinc-500 mt-2">{event.description}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
+
+      {/* Route Information */}
+      {data.route && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="mb-8 p-6 bg-black/40 backdrop-blur-md border border-zinc-800/50 rounded-2xl"
+        >
+          <h3 className="text-xl font-light text-zinc-100 mb-4 flex items-center gap-2">
+            🗺️ Route Details
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+            <div>
+              <div className="text-sm text-zinc-400">Distance</div>
+              <div className="text-lg text-zinc-100">{data.route.distance}</div>
+            </div>
+            <div>
+              <div className="text-sm text-zinc-400">Duration</div>
+              <div className="text-lg text-zinc-100">{data.route.duration}</div>
+            </div>
+            <div>
+              <div className="text-sm text-zinc-400">Mode</div>
+              <div className="text-lg text-zinc-100 capitalize">
+                {data.route.transport_mode}
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Daily Itinerary */}
+      {data.itinerary?.map((day, index) => (
+        <motion.div
+          key={day.day}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 + index * 0.1 }}
+          className="mb-6 p-6 bg-black/40 backdrop-blur-md border border-zinc-800/50 rounded-2xl hover:border-zinc-700/50 transition-all"
+        >
+          <div className="flex justify-between items-start mb-4">
+            <div>
+              <h3 className="text-2xl font-light text-zinc-100 mb-1">
+                Day {day.day}
+              </h3>
+              <p className="text-zinc-400">{day.date}</p>
+            </div>
+            <div className="text-right">
+              <div className="text-lg text-amber-400 font-semibold">
+                {formatCurrency(day.estimated_cost)}
+              </div>
+              {data.weather?.[index] && (
+                <div className="text-sm text-zinc-400 flex items-center gap-2 mt-1">
+                  <span>{getWeatherIcon(data.weather[index].description)}</span>
+                  <span>
+                    {Math.round(data.weather[index].temperature_max)}°C
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {day.notes && (
+            <div className="mb-4 p-3 bg-amber-900/10 border border-amber-800/30 rounded-lg">
+              <p className="text-sm text-amber-200/80 flex items-start gap-2">
+                <span className="text-amber-500">⚠️</span>
+                {day.notes}
+              </p>
+            </div>
+          )}
+
+          <div className="space-y-3">
+            {day.activities?.map((activity, actIndex) => (
+              <motion.div
+                key={actIndex}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.4 + index * 0.1 + actIndex * 0.05 }}
+                className="flex gap-3 items-start group"
+              >
+                <div className="w-2 h-2 mt-2 rounded-full bg-red-800 group-hover:bg-red-500 transition-colors flex-shrink-0" />
+                <p className="text-zinc-300 group-hover:text-zinc-100 transition-colors">
+                  {activity}
+                </p>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+      ))}
+
+      {/* Processing Info */}
+      {data.agent_status && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.5 }}
+          className="mt-8 p-6 bg-zinc-900/30 backdrop-blur-md border border-zinc-800/30 rounded-2xl"
+        >
+          <h3 className="text-lg font-light text-zinc-100 mb-4">
+            Processing Details
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center">
+            {Object.entries(data.agent_status).map(([agent, status]) => (
+              <div key={agent} className="p-3 bg-black/30 rounded-lg">
+                <div className="text-sm text-zinc-400 capitalize mb-1">
+                  {agent}
+                </div>
+                <div
+                  className={`text-xs font-medium ${
+                    status.status === "completed"
+                      ? "text-green-400"
+                      : status.status === "failed"
+                      ? "text-red-400"
+                      : "text-yellow-400"
+                  }`}
+                >
+                  {status.status}
+                </div>
+                {status.duration_ms && (
+                  <div className="text-xs text-zinc-500 mt-1">
+                    {(status.duration_ms / 1000).toFixed(1)}s
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
+    </motion.div>
+  );
+};
+
+const Page = () => {
+  const [currentTitleIndex, setCurrentTitleIndex] = useState(0);
+  const [isPlanning, setIsPlanning] = useState(false);
+  const [planData, setPlanData] = useState(null);
+  const [formData, setFormData] = useState(null);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTitleIndex((prev) => (prev + 1) % titles.length);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handlePlanSubmit = async (payload) => {
+    setFormData(payload);
+    setIsPlanning(true);
+
+    try {
+      const response = await fetch("http://localhost:8000/api/v1/plan-trip", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to generate plan");
+      }
+
+      const result = await response.json();
+      setPlanData(result.data);
+    } catch (error) {
+      console.error("Error generating plan:", error);
+      alert("Failed to generate travel plan. Please try again.");
+      setIsPlanning(false);
+    }
+  };
+
+  const handleNewPlan = () => {
+    setIsPlanning(false);
+    setPlanData(null);
+    setFormData(null);
+  };
+
+  return (
+    <div className="min-h-screen w-screen overflow-x-hidden bg-black relative">
+      <HyperspeedBackground />
+      <div className="bg-black/60 inset-0 absolute" />
+
+      <div className="relative z-10">
+        <AnimatePresence mode="wait">
+          {!isPlanning && !planData ? (
+            <motion.div
+              key="landing"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="min-h-screen flex flex-col items-center justify-center px-4 py-12"
+            >
+              <div className="mb-12 text-center">
+                <AnimatePresence mode="wait">
+                  <motion.h1
+                    key={currentTitleIndex}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    transition={{ duration: 0.5 }}
+                    className="text-5xl font-light bg-gradient-to-r from-white via-zinc-300 to-zinc-700 bg-clip-text text-transparent mb-4"
+                  >
+                    {titles[currentTitleIndex]}
+                  </motion.h1>
+                </AnimatePresence>
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.2 }}
+                  className="text-zinc-400 text-lg"
+                >
+                  Fill in your travel details and let AI craft the perfect
+                  itinerary
+                </motion.p>
+              </div>
+              <TravelPlannerForm onSubmit={handlePlanSubmit} />
+            </motion.div>
+            
+          ) : !planData ? (
+            <motion.div
+              key="loading"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+            >
+              <LoadingState />
+            </motion.div>
+          ) : (
+            <motion.div
+              key="results"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="min-h-screen"
+            >
+              <div className="sticky top-0 z-20 backdrop-blur-xl bg-black/80 border-b border-zinc-800 px-4 py-4">
+                <div className="max-w-6xl mx-auto flex justify-between items-center">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleNewPlan}
+                    className="px-4 py-2 bg-zinc-800/50 hover:bg-zinc-700/50 border border-zinc-700 rounded-lg text-zinc-300 transition-all"
+                  >
+                    ← New Plan
+                  </motion.button>
+                  <div className="text-zinc-400 text-sm">
+                    {planData.completed_agents} /{" "}
+                    {planData.completed_agents + planData.failed_agents} agents
+                    completed
+                  </div>
+                </div>
+              </div>
+              <div className="pt-8">
+                <ItineraryView data={planData} formData={formData} />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+};
+
+export default Page;

@@ -111,7 +111,7 @@ class EventService:
             try:
                 # Extract event details
                 name = event_data.get("name", "Unknown Event")
-                description = event_data.get("description", "")
+                description = event_data.get("description") or ""
                 
                 # Parse date and time
                 start_time = event_data.get("start_time", "")
@@ -144,7 +144,7 @@ class EventService:
                 # so we'll leave it as None or try to parse from description
                 
                 # Get event URL
-                event_url = event_data.get("link", "")
+                event_url = event_data.get("link") or ""
                 
                 # Get image
                 image_url = event_data.get("thumbnail", "")
