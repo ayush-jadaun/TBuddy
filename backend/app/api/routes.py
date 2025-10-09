@@ -9,11 +9,11 @@ from app.models.response import (
     HealthResponse, 
     ErrorResponse
 )
-from app.agents.weather_agent import WeatherAgent
-from app.agents.maps_agent import MapsAgent
-from app.agents.budget_agent import BudgetAgent
-from app.agents.itinerary_agent import ItineraryAgent
-from app.agents.event_agent import EventsAgent
+from app.agents_v2.weather_agent import WeatherAgent
+from app.agents_v2.maps_agent import MapsAgent
+from app.agents_v2.budget_agent import BudgetAgent
+from app.agents_v2.itinerary_agent import ItineraryAgent
+from app.agents_v2.event_agent import EventsAgent
 from app.core.state import EventInfo, create_initial_state
 import logging
 

@@ -12,7 +12,7 @@ from typing import Dict, Any, List, Optional
 import logging
 from datetime import datetime
 
-from app.agents.base_agent import BaseAgent, AgentType, StreamingUpdateType
+from app.agents_v2.base_agent import BaseAgent, AgentType, StreamingUpdateType
 from app.tools.events_tools import EVENT_TOOLS, search_events, get_events_for_dates, get_popular_events
 from app.messaging.redis_client import RedisClient
 from app.services.event_service import EventService

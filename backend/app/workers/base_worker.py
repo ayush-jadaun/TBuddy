@@ -6,7 +6,7 @@ import logging
 
 from app.messaging.redis_client import RedisClient, RedisChannels
 from app.messaging.protocols import MCPMessage, AgentType, MessageAction
-from app.agents.base_agent import BaseAgent
+from app.agents_v2.base_agent import BaseAgent
 from app.config.settings import settings
 
 

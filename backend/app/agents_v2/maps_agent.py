@@ -12,7 +12,7 @@ from typing import Dict, Any, List, Optional
 import logging
 from datetime import datetime
 
-from app.agents.base_agent import BaseAgent, AgentType, StreamingUpdateType
+from app.agents_v2.base_agent import BaseAgent, AgentType, StreamingUpdateType
 from app.tools.maps_tools import MAPS_TOOLS, get_route, get_multiple_routes, get_comprehensive_travel_options
 from app.messaging.redis_client import RedisClient
 from app.services.maps_service import MapsService

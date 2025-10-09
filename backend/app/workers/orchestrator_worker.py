@@ -12,7 +12,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from app.agents.orchestrator_agent import OrchestratorAgent
+from app.agents_v2.orchestrator_agent import OrchestratorAgent
 from app.messaging.redis_client import get_redis_client
 from app.config.settings import settings
 

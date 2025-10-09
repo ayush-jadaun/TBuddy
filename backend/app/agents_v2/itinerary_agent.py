@@ -15,7 +15,7 @@ import json
 import re
 from datetime import datetime
 
-from app.agents.base_agent import BaseAgent, AgentType, StreamingUpdateType
+from app.agents_v2.base_agent import BaseAgent, AgentType, StreamingUpdateType
 from app.tools.itinerary_tools import ITINERARY_TOOLS, create_daily_itinerary, get_destination_info, optimize_itinerary_by_weather
 from app.messaging.redis_client import RedisClient
 from app.services.itinerary_service import ItineraryService
