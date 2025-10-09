@@ -1,5 +1,5 @@
 from typing import Dict, Any, List, Optional, TypedDict, Annotated
-from datetime import datetime
+from datetime import datetime, timedelta
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -29,7 +29,10 @@ class OrchestratorState(TypedDict):
     budget_range: Optional[str]
     user_preferences: Optional[Dict[str, Any]]
     needs_itinerary: bool  # NEW: Whether user wants full itinerary
+
+    query_type: str  # ADD THIS LINE
     
+
     # Workflow control
     agents_to_execute: List[str]
     agent_statuses: Dict[str, str]
@@ -134,46 +137,53 @@ class OrchestratorAgent:
         
         user_query = state["user_query"]
         
-        # Use LLM to extract structured information
-        system_prompt = """
-You are a travel query parser. Extract structured information from user travel queries.
+        # Get current date for "today" queries
+        from datetime import date
+        today_date = date.today().strftime("%Y-%m-%d")
+        
+        system_prompt = f"""
+        You are a travel query parser. Extract structured information from user travel queries.
 
-Extract the following information:
-- destination: The travel destination
-- origin: The starting location (if mentioned)
-- travel_dates: List of dates in YYYY-MM-DD format (if mentioned)
-- travelers_count: Number of travelers
-- budget_range: Budget range if mentioned (e.g., "$1000-2000", "moderate", "luxury")
-- interests: User interests or preferences (list)
-- needs_itinerary: Boolean - Does the user want a complete travel plan/itinerary?
+        IMPORTANT: Today's date is {today_date}. If the query mentions "today", use this date.
+        If the query mentions "tomorrow", use the date: {(date.today() + timedelta(days=1)).strftime("%Y-%m-%d")}.
 
-Determine needs_itinerary=true if the query asks for:
-- "plan my trip"
-- "create an itinerary"
-- "full travel plan"
-- "what should I do"
-- "day by day plan"
-- "complete trip planning"
-- "help me plan"
+        Extract the following information:
+        - destination: The travel destination
+        - origin: The starting location (if mentioned)
+        - travel_dates: List of dates in YYYY-MM-DD format. Convert relative dates:
+        * "today" → {today_date}
+        * "tomorrow" → {(date.today() + timedelta(days=1)).strftime("%Y-%m-%d")}
+        - travelers_count: Number of travelers. IMPORTANT RULES:
+        * If query says "me", "I", "my trip" → travelers_count = 1
+        * If query says "we", "us" → travelers_count = 2 (minimum)
+        * If specific number mentioned → use that number
+        * If NOT mentioned at all → use 1 as default
+        * NEVER return "Not specified" for travelers_count
+        - budget_range: Budget range if mentioned
+        - interests: User interests or preferences
+        - query_type: Classify as ONE of:
+        * "weather_only" - ONLY weather questions
+        * "events_only" - ONLY events/activities questions
+        * "maps_only" - ONLY directions/routes questions
+        * "budget_only" - ONLY cost/budget questions
+        * "full_itinerary" - Complete trip planning (uses "plan", "itinerary", "trip planning")
+        * "multi_aspect" - Multiple questions
 
-Determine needs_itinerary=false if the query only asks for:
-- "what's the weather"
-- "find events"
-- "how do I get there"
-- "what's my budget"
-- Specific single-aspect questions
+        Examples:
+        - "Plan a trip for me" → travelers_count = 1
+        - "Trip for my family" → travelers_count = 4 (assume typical family)
+        - "We are going" → travelers_count = 2
+        - "5 people traveling" → travelers_count = 5
 
-Return the information in a structured format:
-Destination: <destination>
-Origin: <origin or "Not specified">
-Travel Dates: <dates or "Not specified">
-Travelers Count: <number>
-Budget Range: <budget or "Not specified">
-Interests: <comma-separated interests or "Not specified">
-Needs Itinerary: <true or false>
-
-Be specific and extract only factual information from the query.
-"""
+        Return EXACTLY in this format:
+        Destination: <destination>
+        Origin: <origin or "Not specified">
+        Travel Dates: <dates or "Not specified">
+        Travelers Count: <number, default 1>
+        Budget Range: <budget or "Not specified">
+        Interests: <interests or "Not specified">
+        Query Type: <query_type>
+        """
         
         user_input = f"Parse this travel query: {user_query}"
         
@@ -183,46 +193,50 @@ Be specific and extract only factual information from the query.
                 HumanMessage(content=user_input)
             ])
             
-            # Parse LLM response
             parsed_data = self._parse_llm_extraction(response.content)
             
-            # Update state with parsed data
             state["destination"] = parsed_data.get("destination")
             state["origin"] = parsed_data.get("origin")
             state["travel_dates"] = parsed_data.get("travel_dates", [])
-            state["travelers_count"] = parsed_data.get("travelers_count", 1)
+            state["travelers_count"] = parsed_data.get("travelers_count")
             state["budget_range"] = parsed_data.get("budget_range")
-            state["needs_itinerary"] = parsed_data.get("needs_itinerary", False)
+            
+            query_type = parsed_data.get("query_type", "multi_aspect")
+            state["query_type"] = query_type
+            state["needs_itinerary"] = (query_type == "full_itinerary")
             
             if parsed_data.get("interests"):
                 state["user_preferences"] = {"interests": parsed_data["interests"]}
             
             state["messages"].append(
                 f"Query parsed: Destination={state['destination']}, "
-                f"Needs itinerary={state['needs_itinerary']}"
+                f"Query type={query_type}, Dates={state['travel_dates']}"
             )
+            
             self.logger.info(
                 f"✅ Query parsed - Destination: {state['destination']}, "
-                f"Needs itinerary: {state['needs_itinerary']}"
+                f"Query type: {query_type}, Dates: {state['travel_dates']}"
             )
             
         except Exception as e:
             self.logger.error(f"Failed to parse query: {str(e)}")
             state["errors"].append(f"Query parsing failed: {str(e)}")
-            state["needs_itinerary"] = False  # Default to false on error
+            state["needs_itinerary"] = False
+            state["query_type"] = "multi_aspect"
         
-        return state
-    
+        return state  
+
+        
     def _parse_llm_extraction(self, llm_response: str) -> Dict[str, Any]:
         """Parse the LLM's structured response"""
         result = {
             "destination": None,
             "origin": None,
             "travel_dates": [],
-            "travelers_count": 1,
+            "travelers_count": None,
             "budget_range": None,
             "interests": [],
-            "needs_itinerary": False
+            "query_type": "multi_aspect"
         }
         
         lines = llm_response.strip().split('\n')
@@ -244,26 +258,24 @@ Be specific and extract only factual information from the query.
             elif "origin" in key:
                 result["origin"] = value
             elif "travel dates" in key or "dates" in key:
-                # Parse dates from comma-separated string
                 dates = [d.strip() for d in value.split(',')]
-                result["travel_dates"] = [d for d in dates if d]
+                result["travel_dates"] = [d for d in dates if d and d.lower() != "not specified"]
             elif "travelers" in key or "count" in key:
                 try:
                     result["travelers_count"] = int(value.split()[0])
                 except:
-                    result["travelers_count"] = 1
+                    pass
             elif "budget" in key:
                 result["budget_range"] = value
             elif "interest" in key:
                 interests = [i.strip() for i in value.split(',')]
-                result["interests"] = [i for i in interests if i]
-            elif "needs itinerary" in key or "needs_itinerary" in key:
-                result["needs_itinerary"] = value.lower() in ["true", "yes", "1"]
+                result["interests"] = [i for i in interests if i and i.lower() != "not specified"]
+            elif "query type" in key or "query_type" in key:
+                result["query_type"] = value.lower().replace(" ", "_")
         
-        return result
-    
+        return result   
     async def _validate_params_node(self, state: OrchestratorState) -> OrchestratorState:
-        """Validate extracted parameters"""
+        """Validate extracted parameters based on query type"""
         self.logger.info("✔️  Validating travel parameters")
         
         await self._send_streaming_update(
@@ -275,12 +287,28 @@ Be specific and extract only factual information from the query.
         )
         
         errors = []
+        query_type = state.get("query_type", "multi_aspect")
         
-        if not state.get("destination"):
-            errors.append("Destination is required")
+        # Different validation rules based on query type
+        if query_type == "weather_only":
+            if not state.get("destination"):
+                errors.append("Destination is required for weather information")
+            if not state.get("travel_dates") or len(state["travel_dates"]) == 0:
+                errors.append("Travel date is required for weather information")
         
-        if not state.get("travel_dates") or len(state["travel_dates"]) == 0:
-            errors.append("Travel dates are required")
+        elif query_type in ["events_only", "maps_only", "budget_only"]:
+            if not state.get("destination"):
+                errors.append("Destination is required")
+        
+        elif query_type == "full_itinerary":
+            if not state.get("destination"):
+                errors.append("Destination is required")
+            if not state.get("travel_dates") or len(state["travel_dates"]) == 0:
+                errors.append("Travel dates are required for itinerary planning")
+        
+        else:  # multi_aspect
+            if not state.get("destination"):
+                errors.append("Destination is required")
         
         if errors:
             state["errors"].extend(errors)
@@ -291,16 +319,15 @@ Be specific and extract only factual information from the query.
             state["messages"].append("Parameters validated successfully")
             self.logger.info("✅ Parameters validated")
         
-        return state
-    
+        return state  
     def _should_continue_after_validation(self, state: OrchestratorState) -> str:
         """Decide whether to continue workflow after validation"""
         if state["workflow_status"] == "validated":
             return "dispatch"
         return "end"
-    
+        
     async def _dispatch_agents_node(self, state: OrchestratorState) -> OrchestratorState:
-        """Dispatch requests to specialized agents"""
+        """Dispatch requests to specialized agents based on query type"""
         self.logger.info("📤 Dispatching requests to specialized agents")
         
         await self._send_streaming_update(
@@ -312,19 +339,54 @@ Be specific and extract only factual information from the query.
         )
         
         session_id = state["session_id"]
+        query_type = state.get("query_type", "multi_aspect")
         
-        # Determine which agents to call
-        agents_to_call = ["weather"]  # Always fetch weather
+        # Determine which agents to call based on query type
+        agents_to_call = []
         
-        # Add other agents based on available data
-        if state.get("destination"):
-            agents_to_call.extend(["events", "maps"])
+        if query_type == "weather_only":
+            agents_to_call = ["weather"]
+            self.logger.info("🌤️  Query type: weather_only - dispatching ONLY weather agent")
         
-        if state.get("budget_range") or state.get("travelers_count"):
-            agents_to_call.append("budget")
+        elif query_type == "events_only":
+            agents_to_call = ["events"]
+            self.logger.info("🎉 Query type: events_only - dispatching ONLY events agent")
         
-        # NOTE: Itinerary agent is NOT added here
-        # It's called separately in synthesize_plan_node ONLY if needs_itinerary=true
+        elif query_type == "maps_only":
+            agents_to_call = ["maps"]
+            self.logger.info("🗺️  Query type: maps_only - dispatching ONLY maps agent")
+        
+        elif query_type == "budget_only":
+            agents_to_call = ["budget"]
+            self.logger.info("💰 Query type: budget_only - dispatching ONLY budget agent")
+        
+        elif query_type == "full_itinerary":
+            agents_to_call = ["weather", "events", "maps", "budget"]
+            self.logger.info("📋 Query type: full_itinerary - dispatching ALL agents")
+        
+        else:  # multi_aspect
+            self.logger.info("🔀 Query type: multi_aspect - selective dispatch")
+            
+            if state.get("travel_dates"):
+                agents_to_call.append("weather")
+                self.logger.info("  ✓ Adding weather (has dates)")
+            
+            if state.get("user_preferences"):
+                agents_to_call.append("events")
+                self.logger.info("  ✓ Adding events (has interests)")
+            
+            if state.get("origin"):
+                agents_to_call.append("maps")
+                self.logger.info("  ✓ Adding maps (has origin)")
+            
+            if state.get("budget_range") or (state.get("travelers_count") and state["travelers_count"] > 1):
+                agents_to_call.append("budget")
+                self.logger.info("  ✓ Adding budget (has budget info)")
+        
+        # If no agents selected, default to weather
+        if not agents_to_call and state.get("destination"):
+            agents_to_call = ["weather"]
+            self.logger.info("⚠️  No specific agents selected, defaulting to weather")
         
         state["agents_to_execute"] = agents_to_call
         state["agent_statuses"] = {agent: "pending" for agent in agents_to_call}
@@ -346,11 +408,16 @@ Be specific and extract only factual information from the query.
         
         await asyncio.gather(*dispatch_tasks, return_exceptions=True)
         
-        state["messages"].append(f"Dispatched {len(dispatch_tasks)} agent requests")
-        self.logger.info(f"✅ Dispatched requests to {len(dispatch_tasks)} agents")
+        state["messages"].append(
+            f"Dispatched {len(dispatch_tasks)} agent requests for query type: {query_type}"
+        )
+        self.logger.info(
+            f"✅ Dispatched {len(dispatch_tasks)} agents for {query_type}: {agents_to_call}"
+        )
         
         return state
-    
+
+
     async def _dispatch_weather(self, state: OrchestratorState):
         """Dispatch request to weather agent"""
         request = {
@@ -781,7 +848,8 @@ Be specific and extract only factual information from the query.
             "destination": None,
             "origin": None,
             "travel_dates": [],
-            "travelers_count": 1,
+            "travelers_count": None,
+            "query_type": "multi_aspect",
             "budget_range": None,
             "user_preferences": None,
             "needs_itinerary": False,
