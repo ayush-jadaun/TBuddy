@@ -2,7 +2,7 @@ from typing import Dict, Any, List, Optional
 import logging
 from datetime import datetime
 
-from app.agents_v2.base_agent import BaseAgent, AgentType, StreamingUpdateType
+from app.agents.base_agent import BaseAgent, AgentType, StreamingUpdateType
 from app.tools.weather_tools import WEATHER_TOOLS, get_weather_for_specific_dates
 from app.messaging.redis_client import RedisClient
 from app.services.weather_service import WeatherService

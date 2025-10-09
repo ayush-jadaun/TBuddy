@@ -13,7 +13,7 @@ import uuid
 import logging
 from datetime import datetime
 
-from app.agents_v2.orchestrator_agent import OrchestratorAgent
+from app.agents.orchestrator_agent import OrchestratorAgent
 from app.messaging.redis_client import get_redis_client, RedisChannels
 from app.config.settings import settings
 

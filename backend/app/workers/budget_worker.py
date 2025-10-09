@@ -15,7 +15,7 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from app.agents_v2.budget_agent import BudgetAgent
+from app.agents.budget_agent import BudgetAgent
 from app.messaging.protocols import AgentType
 from app.messaging.redis_client import get_redis_client
 from app.workers.base_worker import run_worker

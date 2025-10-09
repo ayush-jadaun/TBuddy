@@ -14,7 +14,7 @@ import json
 import re
 from datetime import datetime
 
-from app.agents_v2.base_agent import BaseAgent, AgentType, StreamingUpdateType
+from app.agents.base_agent import BaseAgent, AgentType, StreamingUpdateType
 from app.tools.budget_tools import BUDGET_TOOLS, calculate_complete_budget, compare_budget_categories
 from app.messaging.redis_client import RedisClient
 from app.services.budget_service import BudgetService

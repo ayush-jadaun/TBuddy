@@ -8,7 +8,7 @@ import logging
 import operator
 import uuid
 
-from app.agents_v2.base_agent import AgentType, AgentStatus, StreamingUpdateType
+from app.agents.base_agent import AgentType, AgentStatus, StreamingUpdateType
 from app.messaging.redis_client import RedisClient, RedisChannels, get_redis_client
 from app.config.settings import settings
 
