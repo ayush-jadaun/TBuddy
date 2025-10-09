@@ -7,11 +7,13 @@ import sys
 from datetime import datetime
 
 from app.config.settings import settings
-from app.api.routes import router as legacy_router
-from app.api.orchestrator_routes import router as orchestrator_router
-from app.api import streaming
+# from app.api.routes import router as legacy_router
+# from app.api.orchestrator_routes import router as orchestrator_router
+# from app.api import streaming
+from app.api.orchestrator_routes_v2 import router as orchestrtor_routes_v2
 from app.models.response import ErrorResponse
 from app.messaging.redis_client import get_redis_client
+from app.api import orchestrator_routes_v2
 
 # Configure logging
 logging.basicConfig(
@@ -32,24 +34,16 @@ async def lifespan(app: FastAPI):
     logger.info(f"🎪 Starting {settings.app_name} v2.0")
     logger.info(f"Debug mode: {settings.debug}")
     
-    # Test Redis connection for orchestrator
+    # Initialize orchestrator
     try:
-        redis_client = get_redis_client()
-        await redis_client.connect()
-        is_healthy = await redis_client.health_check()
-        
-        if is_healthy:
-            logger.info("✅ Redis connection established (Orchestrator enabled)")
-            redis_info = await redis_client.get_info()
-            logger.info(f"   Redis version: {redis_info.get('version', 'unknown')}")
-        else:
-            logger.warning("⚠️ Redis connection unhealthy (Orchestrator disabled)")
-        
-        await redis_client.disconnect()
-        
+        logger.info("🔧 Initializing Orchestrator Agent...")
+        await orchestrator_routes_v2.startup()
+        logger.info("✅ Orchestrator initialized successfully")
     except Exception as e:
-        logger.error(f"❌ Redis connection failed: {str(e)}")
-        logger.warning("⚠️ Orchestrator features disabled. Legacy API still available.")
+        logger.error(f"❌ Failed to initialize orchestrator: {e}", exc_info=True)
+        logger.warning("⚠️ Orchestrator features disabled")
+        # You might want to raise here if orchestrator is critical
+        # raise
     
     logger.info(f"🚀 API Documentation: http://{settings.host}:{settings.port}/docs")
     logger.info(f"📊 Status endpoint: http://{settings.host}:{settings.port}/status")
@@ -58,6 +52,12 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info(f"👋 Shutting down {settings.app_name}")
+    try:
+        await orchestrator_routes_v2.shutdown()
+        logger.info("✅ Orchestrator shutdown complete")
+    except Exception as e:
+        logger.error(f"Error during orchestrator shutdown: {e}")
+
 
 
 # Create FastAPI app
@@ -97,9 +97,10 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(legacy_router, prefix="/api/v1", tags=["Legacy API"])
-app.include_router(orchestrator_router, tags=["Orchestrator API"])
-app.include_router(streaming.router, prefix="/api/v1", tags=["Streaming"])
+# app.include_router(legacy_router, prefix="/api/v1", tags=["Legacy API"])
+# app.include_router(orchestrator_router, tags=["Orchestrator API"])
+# app.include_router(streaming.router, prefix="/api/v1", tags=["Streaming"])
+app.include_router(orchestrtor_routes_v2,  tags=["Orchestrator-v2"])
 
 # Exception handlers
 @app.exception_handler(HTTPException)

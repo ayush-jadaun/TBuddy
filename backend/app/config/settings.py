@@ -6,12 +6,12 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
     
     # Google AI Configuration
-    google_api_key: str
+    google_api_key:  Optional[str] = None
     
     # Weather API Configuration
-    openweather_api_key: str
+    openweather_api_key:  Optional[str] = None
 
-    openroute_api_key: str
+    openroute_api_key:  Optional[str] = None
 
     rapidapi_key: Optional[str] = None
 

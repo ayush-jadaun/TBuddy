@@ -11,9 +11,9 @@ from app.models.response import (
 )
 from app.agents.weather_agent import WeatherAgent
 from app.agents.maps_agent import MapsAgent
-from app.agents.budget_agent import EnhancedBudgetAgent
-from app.agents.itinerary_agent import EnhancedItineraryAgent
-from app.agents.event_agent import EventAgent
+from app.agents.budget_agent import BudgetAgent
+from app.agents.itinerary_agent import ItineraryAgent
+from app.agents.event_agent import EventsAgent
 from app.core.state import EventInfo, create_initial_state
 import logging
 
@@ -25,9 +25,9 @@ router = APIRouter()
 # Initialize all agents
 weather_agent = WeatherAgent()
 maps_agent = MapsAgent()
-budget_agent = EnhancedBudgetAgent()
-itinerary_agent = EnhancedItineraryAgent()
-event_agent = EventAgent()
+budget_agent = BudgetAgent()
+itinerary_agent = ItineraryAgent()
+event_agent = EventsAgent()
 
 
 
