@@ -95,6 +95,11 @@ services:
     environment:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+      - OPENROUTE_API_KEY=${OPENROUTE_API_KEY}
+      - OPENWEB_NINJA_API_KEY=${OPENWEB_NINJA_API_KEY}
+      - OPENWEB_NINJA_BASE_URL=${OPENWEB_NINJA_BASE_URL}
+      - REDIS_URL=redis://redis:6379
+      - RAPIDAPI_KEY=${RAPIDAPI_KEY}
       - REDIS_URL=redis://redis:6379
       - WORKER_TYPE=weather
       - STREAMING_ENABLED=true
@@ -118,8 +123,12 @@ services:
     container_name: TBuddy-events-worker
     environment:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+      - OPENROUTE_API_KEY=${OPENROUTE_API_KEY}
       - OPENWEB_NINJA_API_KEY=${OPENWEB_NINJA_API_KEY}
       - OPENWEB_NINJA_BASE_URL=${OPENWEB_NINJA_BASE_URL}
+      - REDIS_URL=redis://redis:6379
+      - RAPIDAPI_KEY=${RAPIDAPI_KEY}
       - REDIS_URL=redis://redis:6379
       - WORKER_TYPE=events
       - STREAMING_ENABLED=true
@@ -143,7 +152,11 @@ services:
     container_name: TBuddy-maps-worker
     environment:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
       - OPENROUTE_API_KEY=${OPENROUTE_API_KEY}
+      - OPENWEB_NINJA_API_KEY=${OPENWEB_NINJA_API_KEY}
+      - OPENWEB_NINJA_BASE_URL=${OPENWEB_NINJA_BASE_URL}
+      - REDIS_URL=redis://redis:6379
       - RAPIDAPI_KEY=${RAPIDAPI_KEY}
       - REDIS_URL=redis://redis:6379
       - WORKER_TYPE=maps
@@ -168,6 +181,12 @@ services:
     container_name: TBuddy-budget-worker
     environment:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+      - OPENROUTE_API_KEY=${OPENROUTE_API_KEY}
+      - OPENWEB_NINJA_API_KEY=${OPENWEB_NINJA_API_KEY}
+      - OPENWEB_NINJA_BASE_URL=${OPENWEB_NINJA_BASE_URL}
+      - REDIS_URL=redis://redis:6379
+      - RAPIDAPI_KEY=${RAPIDAPI_KEY}
       - REDIS_URL=redis://redis:6379
       - WORKER_TYPE=budget
       - STREAMING_ENABLED=true
@@ -191,6 +210,12 @@ services:
     container_name: TBuddy-itinerary-worker
     environment:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+      - OPENROUTE_API_KEY=${OPENROUTE_API_KEY}
+      - OPENWEB_NINJA_API_KEY=${OPENWEB_NINJA_API_KEY}
+      - OPENWEB_NINJA_BASE_URL=${OPENWEB_NINJA_BASE_URL}
+      - REDIS_URL=redis://redis:6379
+      - RAPIDAPI_KEY=${RAPIDAPI_KEY}
       - REDIS_URL=redis://redis:6379
       - WORKER_TYPE=itinerary
       - STREAMING_ENABLED=true

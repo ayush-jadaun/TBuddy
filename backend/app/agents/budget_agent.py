@@ -160,11 +160,15 @@ Keep responses practical and concise.
         
         self.log_action("Calculating budget", f"Category: {budget_range}, Travelers: {travelers_count}")
         
-        # Normalize budget category
-        budget_category = budget_range.lower()
-        if budget_category not in ['budget', 'mid-range', 'luxury']:
+# Safe way to handle None
+        if budget_range is None:
             budget_category = 'mid-range'
-        
+        else:
+            budget_category = budget_range.lower()
+        if budget_category not in ['budget', 'mid-range', 'luxury', '']:
+            budget_category = 'mid-range'
+
+
         # Extract distance from route_data if available
         if not distance_km and route_data:
             distance_km = self._extract_distance_km(route_data)

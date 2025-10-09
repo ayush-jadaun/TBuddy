@@ -20,6 +20,8 @@ class OrchestratorState(TypedDict):
     # Session info
     session_id: str
     user_query: str
+    is_follow_up: bool  # NEW: Track if this is a follow-up query
+    conversation_history: List[Dict[str, str]]  # NEW: Chat history
     
     # Travel parameters
     destination: Optional[str]
@@ -28,9 +30,10 @@ class OrchestratorState(TypedDict):
     travelers_count: int
     budget_range: Optional[str]
     user_preferences: Optional[Dict[str, Any]]
-    needs_itinerary: bool  # NEW: Whether user wants full itinerary
+    needs_itinerary: bool
 
-    query_type: str  # ADD THIS LINE
+    query_type: str
+    update_type: Optional[str]  # NEW: "budget_update", "itinerary_update", "dates_update", etc.
     
 
     # Workflow control
@@ -53,18 +56,18 @@ class OrchestratorState(TypedDict):
     end_time: Optional[str]
 
 
-# ==================== ORCHESTRATOR AGENT ====================
+# ==================== ORCHESTRATOR AGENT WITH MEMORY ====================
 
 class OrchestratorAgent:
     """
-    Orchestrator Agent - Coordinates multiple specialized agents using Redis pub/sub
+    Enhanced Orchestrator Agent with Memory Management
     
-    Features:
-    - Parses user queries to extract travel parameters
-    - Dispatches tasks to specialized agents (weather, events, maps, budget, itinerary)
-    - Collects responses asynchronously
-    - Streams real-time updates to clients
-    - Synthesizes final travel plan (only if requested)
+    New Features:
+    - Session-based memory storage and retrieval
+    - Conversation history tracking
+    - Context-aware follow-up query handling
+    - Incremental updates (budget changes, itinerary modifications)
+    - Smart agent selection based on conversation context
     """
     
     def __init__(
@@ -81,7 +84,7 @@ class OrchestratorAgent:
         self.llm = ChatGoogleGenerativeAI(
             model=model_name,
             google_api_key=api_key,
-            temperature=0.3,  # Lower temperature for structured extraction
+            temperature=0.3,
             max_output_tokens=4096
         )
         
@@ -89,10 +92,12 @@ class OrchestratorAgent:
         self.graph = self._build_graph()
     
     def _build_graph(self) -> StateGraph:
-        """Build the orchestrator workflow graph"""
+        """Build the orchestrator workflow graph with memory support"""
         workflow = StateGraph(OrchestratorState)
         
         # Add nodes
+        workflow.add_node("load_memory", self._load_memory_node)  # NEW
+        workflow.add_node("classify_query", self._classify_query_node)  # NEW
         workflow.add_node("parse_query", self._parse_query_node)
         workflow.add_node("validate_params", self._validate_params_node)
         workflow.add_node("dispatch_agents", self._dispatch_agents_node)
@@ -101,7 +106,20 @@ class OrchestratorAgent:
         workflow.add_node("finalize", self._finalize_node)
         
         # Define edges
-        workflow.set_entry_point("parse_query")
+        workflow.set_entry_point("load_memory")
+        workflow.add_edge("load_memory", "classify_query")
+        
+        # Conditional edge after classification
+        workflow.add_conditional_edges(
+            "classify_query",
+            self._route_after_classification,
+            {
+                "parse": "parse_query",
+                "dispatch": "dispatch_agents",  # For simple updates
+                "end": "finalize"
+            }
+        )
+        
         workflow.add_edge("parse_query", "validate_params")
         
         # Conditional edge after validation
@@ -121,10 +139,202 @@ class OrchestratorAgent:
         
         return workflow.compile()
     
-    # ==================== WORKFLOW NODES ====================
+    # ==================== NEW MEMORY NODES ====================
+    
+    async def _load_memory_node(self, state: OrchestratorState) -> OrchestratorState:
+        """Load previous session state from Redis if it exists"""
+        session_id = state["session_id"]
+        self.logger.info(f"🧠 Loading memory for session {session_id}")
+        
+        # Try to load previous state
+        previous_state = await self.redis_client.get_state(session_id)
+        
+        if previous_state:
+            self.logger.info(f"✅ Found existing session memory")
+            state["is_follow_up"] = True
+            
+            # Restore key fields from previous state
+            state["destination"] = previous_state.get("destination")
+            state["origin"] = previous_state.get("origin")
+            state["travel_dates"] = previous_state.get("travel_dates", [])
+            state["travelers_count"] = previous_state.get("travelers_count")
+            state["budget_range"] = previous_state.get("budget_range")
+            state["user_preferences"] = previous_state.get("user_preferences")
+            
+            # Restore previous agent data
+            state["weather_data"] = previous_state.get("weather_data")
+            state["events_data"] = previous_state.get("events_data")
+            state["maps_data"] = previous_state.get("maps_data")
+            state["budget_data"] = previous_state.get("budget_data")
+            state["itinerary_data"] = previous_state.get("itinerary_data")
+            
+            # Load conversation history
+            state["conversation_history"] = previous_state.get("conversation_history", [])
+            
+            # Add current query to history
+            state["conversation_history"].append({
+                "role": "user",
+                "content": state["user_query"],
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+            self.logger.info(
+                f"📚 Restored context: destination={state['destination']}, "
+                f"dates={state['travel_dates']}, history={len(state['conversation_history'])} messages"
+            )
+            
+            await self._send_streaming_update(
+                session_id=session_id,
+                agent="orchestrator",
+                message=f"Continuing conversation (loaded previous context)",
+                update_type="progress",
+                progress_percent=5
+            )
+        else:
+            self.logger.info(f"🆕 New session - no previous memory")
+            state["is_follow_up"] = False
+            state["conversation_history"] = [{
+                "role": "user",
+                "content": state["user_query"],
+                "timestamp": datetime.utcnow().isoformat()
+            }]
+        
+        return state
+    
+    async def _classify_query_node(self, state: OrchestratorState) -> OrchestratorState:
+        """Classify the query type and determine if it's an update request"""
+        self.logger.info("🔍 Classifying query intent")
+        
+        user_query = state["user_query"].lower()
+        is_follow_up = state["is_follow_up"]
+        
+        # Build context string from previous state
+        context_summary = ""
+        if is_follow_up:
+            context_summary = f"""
+Previous Context:
+- Destination: {state.get('destination', 'Not set')}
+- Travel Dates: {state.get('travel_dates', 'Not set')}
+- Budget: {state.get('budget_range', 'Not set')}
+- Travelers: {state.get('travelers_count', 'Not set')}
+- Has Itinerary: {'Yes' if state.get('itinerary_data') else 'No'}
+- Has Budget Data: {'Yes' if state.get('budget_data') else 'No'}
+"""
+        
+        system_prompt = f"""
+You are a travel query classifier. Analyze the user's query and determine the intent.
+
+{context_summary}
+
+Current Query: "{state['user_query']}"
+
+Classify the query as ONE of:
+1. "new_query" - A completely new travel planning request
+2. "budget_update" - Request to change/update budget (keywords: "change budget", "update budget", "different budget", "cheaper", "more expensive")
+3. "itinerary_update" - Request to modify existing itinerary (keywords: "change itinerary", "update plan", "add activity", "remove", "modify")
+4. "dates_update" - Request to change travel dates
+5. "destination_update" - Request to change destination
+6. "simple_question" - Simple question about existing plan (keywords: "what about", "tell me about", "show me")
+7. "refinement" - Refining preferences or adding details to existing plan
+
+IMPORTANT RULES:
+- If NO previous context exists (first message), ALWAYS classify as "new_query"
+- If previous context exists:
+  * Look for update/change keywords
+  * Consider if query references existing plan
+  * "change X", "update X", "different X" → likely an update
+  * Questions about existing data → "simple_question"
+
+Return EXACTLY in this format:
+Classification: <classification>
+Update Type: <specific_update_type or "none">
+Reasoning: <brief explanation>
+"""
+        
+        try:
+            response = await self.llm.ainvoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=f"Classify: {state['user_query']}")
+            ])
+            
+            # Parse classification
+            lines = response.content.strip().split('\n')
+            classification = "new_query"
+            update_type = None
+            
+            for line in lines:
+                if "classification:" in line.lower():
+                    classification = line.split(':', 1)[1].strip().lower().replace(" ", "_")
+                elif "update type:" in line.lower():
+                    update_val = line.split(':', 1)[1].strip().lower()
+                    if update_val != "none":
+                        update_type = update_val
+            
+            state["update_type"] = update_type
+            
+            # Determine query type based on classification
+            if not is_follow_up or classification == "new_query":
+                state["query_type"] = "multi_aspect"
+                self.logger.info("📝 New query detected - full parsing needed")
+            elif classification == "budget_update":
+                state["query_type"] = "budget_only"
+                state["agents_to_execute"] = ["budget"]
+                self.logger.info("💰 Budget update detected")
+            elif classification == "itinerary_update":
+                state["query_type"] = "full_itinerary"
+                state["needs_itinerary"] = True
+                # Re-run itinerary agent with modification request
+                state["agents_to_execute"] = ["itinerary"]
+                self.logger.info("📋 Itinerary modification detected")
+            elif classification == "dates_update":
+                # Need to re-fetch weather and potentially regenerate itinerary
+                state["query_type"] = "multi_aspect"
+                self.logger.info("📅 Dates update detected - will re-fetch relevant data")
+            elif classification == "simple_question":
+                state["query_type"] = "simple_question"
+                self.logger.info("❓ Simple question - may not need new data")
+            else:
+                state["query_type"] = "multi_aspect"
+                self.logger.info("🔄 Query refinement detected")
+            
+            state["messages"].append(f"Query classified as: {classification}")
+            
+        except Exception as e:
+            self.logger.error(f"Classification failed: {str(e)}")
+            state["query_type"] = "multi_aspect"
+            state["update_type"] = None
+        
+        return state
+    
+    def _route_after_classification(self, state: OrchestratorState) -> str:
+        """Route workflow based on query classification"""
+        query_type = state.get("query_type", "multi_aspect")
+        is_follow_up = state.get("is_follow_up", False)
+        update_type = state.get("update_type")
+        
+        # If it's a simple question about existing data, no need to fetch new data
+        if query_type == "simple_question" and is_follow_up:
+            return "end"
+        
+        # If it's a specific update and we already have context
+        if is_follow_up and update_type in ["budget_update", "itinerary_update","dates_update"]:
+            # Skip parsing, go directly to dispatch
+            return "dispatch"
+        
+        # If destination is not set or it's a new query, need full parsing
+        if not state.get("destination") or query_type == "multi_aspect":
+            return "parse"
+        
+        # For other follow-ups with context, dispatch directly
+        if is_follow_up and state.get("destination"):
+            return "dispatch"
+        
+        return "parse"
+    
+    # ==================== ENHANCED WORKFLOW NODES ====================
     
     async def _parse_query_node(self, state: OrchestratorState) -> OrchestratorState:
-        """Parse user query to extract travel parameters using LLM"""
+        """Parse user query with conversation context"""
         self.logger.info(f"🔍 Parsing user query for session {state['session_id']}")
         
         await self._send_streaming_update(
@@ -136,54 +346,55 @@ class OrchestratorAgent:
         )
         
         user_query = state["user_query"]
+        is_follow_up = state["is_follow_up"]
         
-        # Get current date for "today" queries
+        # Get current date
         from datetime import date
         today_date = date.today().strftime("%Y-%m-%d")
         
+        # Build conversation context for LLM
+        context_str = ""
+        if is_follow_up and state.get("conversation_history"):
+            recent_history = state["conversation_history"][-5:]  # Last 5 messages
+            context_str = "Previous conversation:\n"
+            for msg in recent_history[:-1]:  # Exclude current message
+                context_str += f"{msg['role']}: {msg['content']}\n"
+        
         system_prompt = f"""
-        You are a travel query parser. Extract structured information from user travel queries.
+You are a travel query parser. Extract structured information from user travel queries.
 
-        IMPORTANT: Today's date is {today_date}. If the query mentions "today", use this date.
-        If the query mentions "tomorrow", use the date: {(date.today() + timedelta(days=1)).strftime("%Y-%m-%d")}.
+IMPORTANT: Today's date is {today_date}.
 
-        Extract the following information:
-        - destination: The travel destination
-        - origin: The starting location (if mentioned)
-        - travel_dates: List of dates in YYYY-MM-DD format. Convert relative dates:
-        * "today" → {today_date}
-        * "tomorrow" → {(date.today() + timedelta(days=1)).strftime("%Y-%m-%d")}
-        - travelers_count: Number of travelers. IMPORTANT RULES:
-        * If query says "me", "I", "my trip" → travelers_count = 1
-        * If query says "we", "us" → travelers_count = 2 (minimum)
-        * If specific number mentioned → use that number
-        * If NOT mentioned at all → use 1 as default
-        * NEVER return "Not specified" for travelers_count
-        - budget_range: Budget range if mentioned
-        - interests: User interests or preferences
-        - query_type: Classify as ONE of:
-        * "weather_only" - ONLY weather questions
-        * "events_only" - ONLY events/activities questions
-        * "maps_only" - ONLY directions/routes questions
-        * "budget_only" - ONLY cost/budget questions
-        * "full_itinerary" - Complete trip planning (uses "plan", "itinerary", "trip planning")
-        * "multi_aspect" - Multiple questions
+{context_str}
 
-        Examples:
-        - "Plan a trip for me" → travelers_count = 1
-        - "Trip for my family" → travelers_count = 4 (assume typical family)
-        - "We are going" → travelers_count = 2
-        - "5 people traveling" → travelers_count = 5
+Current State (if available):
+- Destination: {state.get('destination', 'Not set')}
+- Origin: {state.get('origin', 'Not set')}
+- Travel Dates: {state.get('travel_dates', 'Not set')}
+- Travelers Count: {state.get('travelers_count', 'Not set')}
+- Budget Range: {state.get('budget_range', 'Not set')}
 
-        Return EXACTLY in this format:
-        Destination: <destination>
-        Origin: <origin or "Not specified">
-        Travel Dates: <dates or "Not specified">
-        Travelers Count: <number, default 1>
-        Budget Range: <budget or "Not specified">
-        Interests: <interests or "Not specified">
-        Query Type: <query_type>
-        """
+Extract from the NEW query (fill in missing fields or UPDATE existing ones):
+- destination
+- origin
+- travel_dates (YYYY-MM-DD format)
+- travelers_count (default 1)
+- budget_range
+- interests
+- query_type: "weather_only", "events_only", "maps_only", "budget_only", "full_itinerary", "multi_aspect"
+
+If the user is updating/changing a field, extract the NEW value.
+If a field is not mentioned, keep the existing value (use "Keep existing" in response).
+
+Return EXACTLY in this format:
+Destination: <destination or "Keep existing">
+Origin: <origin or "Keep existing">
+Travel Dates: <dates or "Keep existing">
+Travelers Count: <number or "Keep existing">
+Budget Range: <budget or "Keep existing">
+Interests: <interests or "Keep existing">
+Query Type: <query_type>
+"""
         
         user_input = f"Parse this travel query: {user_query}"
         
@@ -195,18 +406,30 @@ class OrchestratorAgent:
             
             parsed_data = self._parse_llm_extraction(response.content)
             
-            state["destination"] = parsed_data.get("destination")
-            state["origin"] = parsed_data.get("origin")
-            state["travel_dates"] = parsed_data.get("travel_dates", [])
-            state["travelers_count"] = parsed_data.get("travelers_count")
-            state["budget_range"] = parsed_data.get("budget_range")
+            # Update state only with new values (don't override with "Keep existing")
+            if parsed_data.get("destination") and parsed_data["destination"] != "keep_existing":
+                state["destination"] = parsed_data["destination"]
+            
+            if parsed_data.get("origin") and parsed_data["origin"] != "keep_existing":
+                state["origin"] = parsed_data["origin"]
+            
+            if parsed_data.get("travel_dates") and parsed_data["travel_dates"] != ["keep_existing"]:
+                state["travel_dates"] = parsed_data["travel_dates"]
+            
+            if parsed_data.get("travelers_count") and parsed_data["travelers_count"] != "keep_existing":
+                state["travelers_count"] = parsed_data["travelers_count"]
+            
+            if parsed_data.get("budget_range") and parsed_data["budget_range"] != "keep_existing":
+                state["budget_range"] = parsed_data["budget_range"]
             
             query_type = parsed_data.get("query_type", "multi_aspect")
             state["query_type"] = query_type
             state["needs_itinerary"] = (query_type == "full_itinerary")
             
             if parsed_data.get("interests"):
-                state["user_preferences"] = {"interests": parsed_data["interests"]}
+                if not state.get("user_preferences"):
+                    state["user_preferences"] = {}
+                state["user_preferences"]["interests"] = parsed_data["interests"]
             
             state["messages"].append(
                 f"Query parsed: Destination={state['destination']}, "
@@ -221,12 +444,9 @@ class OrchestratorAgent:
         except Exception as e:
             self.logger.error(f"Failed to parse query: {str(e)}")
             state["errors"].append(f"Query parsing failed: {str(e)}")
-            state["needs_itinerary"] = False
-            state["query_type"] = "multi_aspect"
         
-        return state  
-
-        
+        return state
+    
     def _parse_llm_extraction(self, llm_response: str) -> Dict[str, Any]:
         """Parse the LLM's structured response"""
         result = {
@@ -250,7 +470,19 @@ class OrchestratorAgent:
             key = key.strip().lower()
             value = value.strip()
             
-            if value.lower() in ["not specified", "not mentioned", "none", ""]:
+            if value.lower() in ["not specified", "not mentioned", "none", "", "keep existing"]:
+                if "keep existing" in value.lower():
+                    # Mark as keep_existing
+                    if "destination" in key:
+                        result["destination"] = "keep_existing"
+                    elif "origin" in key:
+                        result["origin"] = "keep_existing"
+                    elif "travel dates" in key or "dates" in key:
+                        result["travel_dates"] = ["keep_existing"]
+                    elif "travelers" in key or "count" in key:
+                        result["travelers_count"] = "keep_existing"
+                    elif "budget" in key:
+                        result["budget_range"] = "keep_existing"
                 continue
             
             if "destination" in key:
@@ -258,8 +490,8 @@ class OrchestratorAgent:
             elif "origin" in key:
                 result["origin"] = value
             elif "travel dates" in key or "dates" in key:
-                dates = [d.strip() for d in value.split(',')]
-                result["travel_dates"] = [d for d in dates if d and d.lower() != "not specified"]
+                dates = [d.strip().strip('[]') for d in value.split(',')]
+                result["travel_dates"] = [d for d in dates if d and d.lower() not in ["not specified", "keep existing"]]
             elif "travelers" in key or "count" in key:
                 try:
                     result["travelers_count"] = int(value.split()[0])
@@ -273,7 +505,8 @@ class OrchestratorAgent:
             elif "query type" in key or "query_type" in key:
                 result["query_type"] = value.lower().replace(" ", "_")
         
-        return result   
+        return result
+    
     async def _validate_params_node(self, state: OrchestratorState) -> OrchestratorState:
         """Validate extracted parameters based on query type"""
         self.logger.info("✔️  Validating travel parameters")
@@ -319,15 +552,16 @@ class OrchestratorAgent:
             state["messages"].append("Parameters validated successfully")
             self.logger.info("✅ Parameters validated")
         
-        return state  
+        return state
+    
     def _should_continue_after_validation(self, state: OrchestratorState) -> str:
         """Decide whether to continue workflow after validation"""
         if state["workflow_status"] == "validated":
             return "dispatch"
         return "end"
-        
+    
     async def _dispatch_agents_node(self, state: OrchestratorState) -> OrchestratorState:
-        """Dispatch requests to specialized agents based on query type"""
+        """Dispatch requests to specialized agents based on query type and updates"""
         self.logger.info("📤 Dispatching requests to specialized agents")
         
         await self._send_streaming_update(
@@ -340,55 +574,65 @@ class OrchestratorAgent:
         
         session_id = state["session_id"]
         query_type = state.get("query_type", "multi_aspect")
+        update_type = state.get("update_type")
+        is_follow_up = state.get("is_follow_up", False)
         
-        # Determine which agents to call based on query type
-        agents_to_call = []
-        
-        if query_type == "weather_only":
-            agents_to_call = ["weather"]
-            self.logger.info("🌤️  Query type: weather_only - dispatching ONLY weather agent")
-        
-        elif query_type == "events_only":
-            agents_to_call = ["events"]
-            self.logger.info("🎉 Query type: events_only - dispatching ONLY events agent")
-        
-        elif query_type == "maps_only":
-            agents_to_call = ["maps"]
-            self.logger.info("🗺️  Query type: maps_only - dispatching ONLY maps agent")
-        
-        elif query_type == "budget_only":
-            agents_to_call = ["budget"]
-            self.logger.info("💰 Query type: budget_only - dispatching ONLY budget agent")
-        
-        elif query_type == "full_itinerary":
-            agents_to_call = ["weather", "events", "maps", "budget"]
-            self.logger.info("📋 Query type: full_itinerary - dispatching ALL agents")
-        
-        else:  # multi_aspect
-            self.logger.info("🔀 Query type: multi_aspect - selective dispatch")
+        # Check if agents were pre-determined (e.g., for updates)
+        if state.get("agents_to_execute"):
+            agents_to_call = state["agents_to_execute"]
+            self.logger.info(f"🎯 Using pre-determined agents: {agents_to_call}")
+        else:
+            # Determine which agents to call based on query type
+            agents_to_call = []
             
-            if state.get("travel_dates"):
-                agents_to_call.append("weather")
-                self.logger.info("  ✓ Adding weather (has dates)")
+            if query_type == "weather_only":
+                agents_to_call = ["weather"]
+                self.logger.info("🌤️  Query type: weather_only")
             
-            if state.get("user_preferences"):
-                agents_to_call.append("events")
-                self.logger.info("  ✓ Adding events (has interests)")
+            elif query_type == "events_only":
+                agents_to_call = ["events"]
+                self.logger.info("🎉 Query type: events_only")
             
-            if state.get("origin"):
-                agents_to_call.append("maps")
-                self.logger.info("  ✓ Adding maps (has origin)")
+            elif query_type == "maps_only":
+                agents_to_call = ["maps"]
+                self.logger.info("🗺️  Query type: maps_only")
             
-            if state.get("budget_range") or (state.get("travelers_count") and state["travelers_count"] > 1):
-                agents_to_call.append("budget")
-                self.logger.info("  ✓ Adding budget (has budget info)")
+            elif query_type == "budget_only":
+                agents_to_call = ["budget"]
+                self.logger.info("💰 Query type: budget_only")
+            
+            elif query_type == "full_itinerary":
+                # Check if we already have data and just need itinerary update
+                if is_follow_up and all([
+                    state.get("weather_data"),
+                    state.get("events_data"),
+                    state.get("budget_data")
+                ]):
+                    agents_to_call = ["itinerary"]
+                    self.logger.info("📋 Itinerary update - reusing existing data")
+                else:
+                    agents_to_call = ["weather", "events", "maps", "budget"]
+                    self.logger.info("📋 Full itinerary - fetching all data")
+            
+                
+
+            else:  # multi_aspect
+                self.logger.info("🔀 Query type: multi_aspect - selective dispatch")
+                
+                if state.get("travel_dates"):
+                    agents_to_call.append("weather")
+                
+                if state.get("user_preferences"):
+                    agents_to_call.append("events")
+                
+                if state.get("origin"):
+                    agents_to_call.append("maps")
+                
+                if state.get("budget_range") or (state.get("travelers_count") and state["travelers_count"] > 1):
+                    agents_to_call.append("budget")
+            
+            state["agents_to_execute"] = agents_to_call
         
-        # If no agents selected, default to weather
-        if not agents_to_call and state.get("destination"):
-            agents_to_call = ["weather"]
-            self.logger.info("⚠️  No specific agents selected, defaulting to weather")
-        
-        state["agents_to_execute"] = agents_to_call
         state["agent_statuses"] = {agent: "pending" for agent in agents_to_call}
         
         # Dispatch requests in parallel
@@ -409,14 +653,11 @@ class OrchestratorAgent:
         await asyncio.gather(*dispatch_tasks, return_exceptions=True)
         
         state["messages"].append(
-            f"Dispatched {len(dispatch_tasks)} agent requests for query type: {query_type}"
+            f"Dispatched {len(dispatch_tasks)} agent requests"
         )
-        self.logger.info(
-            f"✅ Dispatched {len(dispatch_tasks)} agents for {query_type}: {agents_to_call}"
-        )
+        self.logger.info(f"✅ Dispatched {len(dispatch_tasks)} agents: {agents_to_call}")
         
         return state
-
 
     async def _dispatch_weather(self, state: OrchestratorState):
         """Dispatch request to weather agent"""
@@ -433,10 +674,8 @@ class OrchestratorAgent:
         }
         
         state["agent_statuses"]["weather"] = "processing"
-        
         channel = RedisChannels.WEATHER_REQUEST
         await self.redis_client.publish(channel, request)
-        
         self.logger.info(f"📡 Dispatched weather request")
     
     async def _dispatch_events(self, state: OrchestratorState):
@@ -459,10 +698,8 @@ class OrchestratorAgent:
         }
         
         state["agent_statuses"]["events"] = "processing"
-        
         channel = RedisChannels.EVENTS_REQUEST
         await self.redis_client.publish(channel, request)
-        
         self.logger.info(f"📡 Dispatched events request")
     
     async def _dispatch_maps(self, state: OrchestratorState):
@@ -480,10 +717,8 @@ class OrchestratorAgent:
         }
         
         state["agent_statuses"]["maps"] = "processing"
-        
         channel = RedisChannels.MAPS_REQUEST
         await self.redis_client.publish(channel, request)
-        
         self.logger.info(f"📡 Dispatched maps request")
     
     async def _dispatch_budget(self, state: OrchestratorState):
@@ -497,16 +732,17 @@ class OrchestratorAgent:
                 "destination": state["destination"],
                 "travel_dates": state["travel_dates"],
                 "travelers_count": state["travelers_count"],
-                "budget_range": state.get("budget_range")
+                "budget_range": state.get("budget_range"),
+                # Include modification context for updates
+                "is_update": state.get("is_follow_up", False),
+                "update_request": state.get("user_query") if state.get("update_type") == "budget_update" else None
             },
             "timestamp": datetime.utcnow().isoformat()
         }
         
         state["agent_statuses"]["budget"] = "processing"
-        
         channel = RedisChannels.BUDGET_REQUEST
         await self.redis_client.publish(channel, request)
-        
         self.logger.info(f"📡 Dispatched budget request")
     
     async def _collect_responses_node(self, state: OrchestratorState) -> OrchestratorState:
@@ -690,6 +926,8 @@ class OrchestratorAgent:
     
     async def _dispatch_itinerary(self, state: OrchestratorState):
         """Dispatch request to itinerary agent for synthesis"""
+        is_update = state.get("is_follow_up", False) and state.get("itinerary_data") is not None
+        
         request = {
             "request_id": f"itinerary_{uuid.uuid4().hex[:8]}",
             "session_id": state["session_id"],
@@ -707,7 +945,12 @@ class OrchestratorAgent:
                 "maps_data": state.get("maps_data"),
                 "route_data": state.get("maps_data"),  # Alias for compatibility
                 "budget_data": state.get("budget_data"),
-                "user_preferences": state.get("user_preferences")
+                "user_preferences": state.get("user_preferences"),
+                # NEW: Pass context for updates
+                "is_update": is_update,
+                "previous_itinerary": state.get("itinerary_data") if is_update else None,
+                "update_request": state.get("user_query") if is_update else None,
+                "conversation_history": state.get("conversation_history", [])
             },
             "metadata": {
                 "timeout_ms": 45000  # 45 second timeout for synthesis
@@ -718,7 +961,7 @@ class OrchestratorAgent:
         channel = RedisChannels.ITINERARY_REQUEST
         await self.redis_client.publish(channel, request)
         
-        self.logger.info(f"📡 Dispatched itinerary synthesis request")
+        self.logger.info(f"📡 Dispatched itinerary synthesis request (is_update={is_update})")
     
     async def _wait_for_itinerary_response(
         self,
@@ -763,6 +1006,14 @@ class OrchestratorAgent:
         completed = sum(1 for s in state["agent_statuses"].values() if s == "completed")
         total = len(state["agent_statuses"])
         
+        # Add assistant response to conversation history
+        state["conversation_history"].append({
+            "role": "assistant",
+            "content": f"Completed processing: {completed}/{total} agents successful",
+            "timestamp": datetime.utcnow().isoformat(),
+            "agents_executed": state["agents_to_execute"]
+        })
+        
         # Send final streaming update
         await self._send_streaming_update(
             session_id=state["session_id"],
@@ -781,14 +1032,14 @@ class OrchestratorAgent:
         
         state["messages"].append(f"Workflow completed with {completed}/{total} agents")
         
-        # Save final state to Redis
+        # Save final state to Redis with extended TTL for memory
         await self.redis_client.set_state(
             state["session_id"],
             dict(state),
-            ttl=7200  # 2 hours
+            ttl=86400  # 24 hours for longer memory retention
         )
         
-        self.logger.info(f"🎉 Workflow completed successfully")
+        self.logger.info(f"🎉 Workflow completed successfully - Memory saved")
         
         return state
     
@@ -823,13 +1074,17 @@ class OrchestratorAgent:
     
     # ==================== PUBLIC API ====================
     
-    async def process_query(self, user_query: str, session_id: Optional[str] = None) -> Dict[str, Any]:
+    async def process_query(
+        self, 
+        user_query: str, 
+        session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
-        Process a user travel query
+        Process a user travel query with memory support
         
         Args:
             user_query: Natural language travel query from user
-            session_id: Optional session ID for tracking
+            session_id: Optional session ID for tracking (required for follow-ups)
             
         Returns:
             Final travel plan with all agent responses
@@ -837,19 +1092,25 @@ class OrchestratorAgent:
         # Generate session ID if not provided
         if not session_id:
             session_id = f"session_{uuid.uuid4().hex[:12]}"
+            self.logger.info(f"🆕 Generated new session ID: {session_id}")
+        else:
+            self.logger.info(f"🔄 Using existing session ID: {session_id}")
         
         # Connect to Redis
         await self.redis_client.connect()
         
-        # Create initial state
+        # Create initial state (will be populated by load_memory_node)
         initial_state = {
             "session_id": session_id,
             "user_query": user_query,
+            "is_follow_up": False,
+            "conversation_history": [],
             "destination": None,
             "origin": None,
             "travel_dates": [],
             "travelers_count": None,
             "query_type": "multi_aspect",
+            "update_type": None,
             "budget_range": None,
             "user_preferences": None,
             "needs_itinerary": False,
@@ -881,6 +1142,8 @@ class OrchestratorAgent:
             return {
                 "session_id": session_id,
                 "status": final_state["workflow_status"],
+                "is_follow_up": final_state.get("is_follow_up", False),
+                "update_type": final_state.get("update_type"),
                 "destination": final_state.get("destination"),
                 "travel_dates": final_state.get("travel_dates"),
                 "needs_itinerary": final_state.get("needs_itinerary"),
@@ -891,12 +1154,53 @@ class OrchestratorAgent:
                 "itinerary": final_state.get("itinerary_data"),
                 "messages": final_state["messages"],
                 "errors": final_state["errors"],
-                "agent_statuses": final_state["agent_statuses"]
+                "agent_statuses": final_state["agent_statuses"],
+                "conversation_history": final_state.get("conversation_history", [])
             }
             
         except Exception as e:
             self.logger.error(f"Orchestration failed: {str(e)}", exc_info=True)
             raise
+    
+    async def get_session_memory(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve session memory from Redis
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            Session state or None if not found
+        """
+        await self.redis_client.connect()
+        return await self.redis_client.get_state(session_id)
+    
+    async def clear_session_memory(self, session_id: str) -> bool:
+        """
+        Clear session memory from Redis
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            True if deleted successfully
+        """
+        await self.redis_client.connect()
+        return await self.redis_client.delete_state(session_id)
+    
+    async def extend_session_memory(self, session_id: str, hours: int = 24) -> bool:
+        """
+        Extend session memory TTL
+        
+        Args:
+            session_id: Session identifier
+            hours: Hours to extend
+            
+        Returns:
+            True if extended successfully
+        """
+        await self.redis_client.connect()
+        return await self.redis_client.extend_state_ttl(session_id, ttl=hours * 3600)
 
 
 # ==================== HELPER FUNCTIONS ====================
@@ -906,7 +1210,7 @@ async def create_orchestrator(
     gemini_api_key: Optional[str] = None
 ) -> OrchestratorAgent:
     """
-    Create and initialize an orchestrator agent
+    Create and initialize an orchestrator agent with memory support
     
     Args:
         redis_client: Optional Redis client instance
@@ -925,8 +1229,6 @@ async def create_orchestrator(
         await orchestrator.redis_client.connect()
     
     return orchestrator
-
-
 # ==================== STANDALONE RUNNER ====================
 
 async def run_orchestrator_standalone():
