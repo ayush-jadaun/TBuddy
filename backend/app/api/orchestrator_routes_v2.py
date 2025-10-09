@@ -20,7 +20,7 @@ from app.config.settings import settings
 logger = logging.getLogger(__name__)
 
 # Create router
-router = APIRouter(prefix="/api/v1/orchestrator", tags=["orchestrator-v2"])
+router = APIRouter(prefix="/api/v2/orchestrator", tags=["orchestrator-v2"])
 
 # Global orchestrator instance (initialized on startup)
 _orchestrator: Optional[OrchestratorAgent] = None

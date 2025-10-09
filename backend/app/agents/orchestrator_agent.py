@@ -490,8 +490,10 @@ Query Type: <query_type>
             elif "origin" in key:
                 result["origin"] = value
             elif "travel dates" in key or "dates" in key:
-                dates = [d.strip().strip('[]') for d in value.split(',')]
-                result["travel_dates"] = [d for d in dates if d and d.lower() not in ["not specified", "keep existing"]]
+                dates = [d.strip().strip("[]").strip("'\"") for d in value.split(',')]
+                result["travel_dates"] = [
+                d for d in dates if d and d.lower() not in ["not specified", "keep existing"]
+                 ]
             elif "travelers" in key or "count" in key:
                 try:
                     result["travelers_count"] = int(value.split()[0])
