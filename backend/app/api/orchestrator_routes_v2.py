@@ -142,8 +142,16 @@ def get_orchestrator() -> OrchestratorAgent:
 
 
 # ==================== HTTP ENDPOINTS ====================
+class AsyncPlanResponse(BaseModel):
+    """Response model for async plan endpoint"""
+    session_id: str
+    status: str
+    message: str
+    websocket_url: str
+    query: str
 
-@router.post("/plan", response_model=TravelPlanResponse)
+
+@router.post("/plan", response_model=AsyncPlanResponse)
 async def create_travel_plan(
     request: TravelQueryRequest,
     background_tasks: BackgroundTasks
@@ -151,35 +159,7 @@ async def create_travel_plan(
     """
     Create or update a travel plan from natural language query
     
-    **New Feature: Memory Support**
-    - Provide `session_id` to continue a previous conversation
-    - Without `session_id`, a new conversation starts
-    - Handles follow-ups like "change budget", "update itinerary", etc.
-    
-    **Examples:**
-    
-    1. **New Trip:**
-    ```json
-    {
-        "query": "Plan a 3-day trip to Agra from Delhi for 2 people in July"
-    }
-    ```
-    
-    2. **Update Budget (Follow-up):**
-    ```json
-    {
-        "query": "Change my budget to $2000",
-        "session_id": "session_abc123"
-    }
-    ```
-    
-    3. **Modify Itinerary (Follow-up):**
-    ```json
-    {
-        "query": "Add a visit to the Taj Mahal",
-        "session_id": "session_abc123"
-    }
-    ```
+    **RETURNS IMMEDIATELY** - Connect to WebSocket for real-time updates
     """
     try:
         orchestrator = get_orchestrator()
@@ -202,24 +182,91 @@ async def create_travel_plan(
         
         logger.info(f"📝 Query: {request.query[:100]}...")
         
-        # Process query with memory support
-        result = await orchestrator.process_query(
-            user_query=request.query,
-            session_id=session_id
-        )
+        # Create background task for processing
+        async def process_workflow():
+            """Run workflow in background"""
+            try:
+                # Small delay to ensure WebSocket is fully connected
+                await asyncio.sleep(0.3)
+                
+                logger.info(f"🚀 Starting background workflow for {session_id}")
+                
+                result = await orchestrator.process_query(
+                    user_query=request.query,
+                    session_id=session_id
+                )
+                
+                logger.info(f"✅ Background workflow completed for {session_id}")
+                
+            except Exception as e:
+                logger.error(f"❌ Background workflow failed for {session_id}: {e}", exc_info=True)
+                
+                # Send error update via WebSocket
+                try:
+                    await orchestrator._send_streaming_update(
+                        session_id=session_id,
+                        agent="orchestrator",
+                        message=f"Error: {str(e)}",
+                        update_type="error",
+                        progress_percent=0
+                    )
+                except:
+                    pass
         
-        # Calculate conversation turn
-        conversation_turns = len(result.get("conversation_history", []))
+        # Start workflow in background (fire and forget)
+        asyncio.create_task(process_workflow())
         
-        return TravelPlanResponse(
-            **result,
-            conversation_turn=conversation_turns
+        # Return immediately with AsyncPlanResponse
+        return AsyncPlanResponse(
+            session_id=session_id,
+            status="started",
+            message="Travel plan generation started. Connect to WebSocket for real-time updates.",
+            websocket_url=f"ws://localhost:8000/api/v2/orchestrator/ws/{session_id}",
+            query=request.query
         )
         
     except Exception as e:
-        logger.error(f"Failed to process travel query: {e}", exc_info=True)
+        logger.error(f"Failed to start travel plan: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+@router.get("/plan/{session_id}/status")
+async def get_plan_status(session_id: str):
+    """
+    Check if a workflow is complete
+    """
+
+    
+    try:
+        orchestrator = get_orchestrator()
+        redis_client = orchestrator.redis_client
+        
+        state = await redis_client.get_state(session_id)
+        
+        if not state:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        return {
+            "session_id": session_id,
+            "status": state.get("workflow_status"),
+            "is_complete": state.get("workflow_status") == "completed",
+            "agent_statuses": state.get("agent_statuses", {}),
+            "has_results": {
+                "weather": state.get("weather_data") is not None,
+                "events": state.get("events_data") is not None,
+                "maps": state.get("maps_data") is not None,
+                "budget": state.get("budget_data") is not None,
+                "itinerary": state.get("itinerary_data") is not None,
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get plan status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
 
 @router.get("/session/{session_id}/memory", response_model=SessionMemoryResponse)
 async def get_session_memory(session_id: str):

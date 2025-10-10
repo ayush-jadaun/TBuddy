@@ -390,7 +390,7 @@ Return EXACTLY in this format:
 Destination: <destination or "Keep existing">
 Origin: <origin or "Keep existing">
 Travel Dates: <dates or "Keep existing">
-Travelers Count: <number or "Keep existing">
+Travelers Count: <number or "Keep existing" or 1>
 Budget Range: <budget or "Keep existing">
 Interests: <interests or "Keep existing">
 Query Type: <query_type>
@@ -418,6 +418,9 @@ Query Type: <query_type>
             
             if parsed_data.get("travelers_count") and parsed_data["travelers_count"] != "keep_existing":
                 state["travelers_count"] = parsed_data["travelers_count"]
+            if state.get("travelers_count") is None:
+                state["travelers_count"] = 1
+                self.logger.info("✅ Set default travelers_count = 1")
             
             if parsed_data.get("budget_range") and parsed_data["budget_range"] != "keep_existing":
                 state["budget_range"] = parsed_data["budget_range"]
@@ -444,6 +447,8 @@ Query Type: <query_type>
         except Exception as e:
             self.logger.error(f"Failed to parse query: {str(e)}")
             state["errors"].append(f"Query parsing failed: {str(e)}")
+            if state.get("travelers_count") is None:
+                state["travelers_count"] = 1
         
         return state
     
@@ -453,7 +458,7 @@ Query Type: <query_type>
             "destination": None,
             "origin": None,
             "travel_dates": [],
-            "travelers_count": None,
+            "travelers_count": 1,
             "budget_range": None,
             "interests": [],
             "query_type": "multi_aspect"
@@ -498,7 +503,7 @@ Query Type: <query_type>
                 try:
                     result["travelers_count"] = int(value.split()[0])
                 except:
-                    pass
+                    result["travelers_count"] = 1
             elif "budget" in key:
                 result["budget_range"] = value
             elif "interest" in key:
@@ -679,6 +684,12 @@ Query Type: <query_type>
         channel = RedisChannels.WEATHER_REQUEST
         await self.redis_client.publish(channel, request)
         self.logger.info(f"📡 Dispatched weather request")
+        await self._send_streaming_update(
+        session_id=state["session_id"],
+        agent="weather",
+        message="Weather agent started processing",
+        update_type="agent_start"
+    )
     
     async def _dispatch_events(self, state: OrchestratorState):
         """Dispatch request to events agent"""
@@ -703,6 +714,12 @@ Query Type: <query_type>
         channel = RedisChannels.EVENTS_REQUEST
         await self.redis_client.publish(channel, request)
         self.logger.info(f"📡 Dispatched events request")
+        await self._send_streaming_update(
+        session_id=state["session_id"],
+        agent="events",
+        message="Events agent started processing",
+        update_type="agent_start"
+    )
     
     async def _dispatch_maps(self, state: OrchestratorState):
         """Dispatch request to maps agent"""
@@ -722,6 +739,13 @@ Query Type: <query_type>
         channel = RedisChannels.MAPS_REQUEST
         await self.redis_client.publish(channel, request)
         self.logger.info(f"📡 Dispatched maps request")
+        await self._send_streaming_update(
+        session_id=state["session_id"],
+        agent="maps",
+        message="Maps agent started processing",
+        update_type="agent_start"
+    )
+
     
     async def _dispatch_budget(self, state: OrchestratorState):
         """Dispatch request to budget agent"""
@@ -746,6 +770,12 @@ Query Type: <query_type>
         channel = RedisChannels.BUDGET_REQUEST
         await self.redis_client.publish(channel, request)
         self.logger.info(f"📡 Dispatched budget request")
+        await self._send_streaming_update(
+        session_id=state["session_id"],
+        agent="budget",
+        message="Budget agent started processing",
+        update_type="agent_start"
+    )
     
     async def _collect_responses_node(self, state: OrchestratorState) -> OrchestratorState:
         """Collect responses from agents incrementally with streaming"""
@@ -818,6 +848,13 @@ Query Type: <query_type>
                     else:
                         state["agent_statuses"][agent_name] = "timeout"
                         self.logger.warning(f"⏱️ Timeout for {agent_name}")
+                        await self._send_streaming_update(
+                        session_id=session_id,
+                        agent=agent_name,
+                        message=f"{agent_name.title()} agent timed out",
+                        update_type="error"
+                    )
+                
                     
                     pending_agents.remove(agent_name)
                 
@@ -860,10 +897,23 @@ Query Type: <query_type>
                 state["itinerary_data"] = data
             
             self.logger.info(f"✅ {agent_name} completed successfully")
+            await self._send_streaming_update(
+                session_id=state["session_id"],
+                agent=agent_name,
+                message=f"{agent_name.title()} agent completed successfully",
+                update_type="agent_update",
+                data={f"{agent_name}_data": data}
+            )
         else:
             error = response_data.get("error", "Unknown error")
             state["errors"].append(f"{agent_name}: {error}")
             self.logger.error(f"❌ {agent_name} failed: {error}")
+            await self._send_streaming_update(
+                session_id=state["session_id"],
+                agent=agent_name,
+                message=f"{agent_name.title()} agent failed: {error}",
+                update_type="error"
+            )
     
     async def _synthesize_plan_node(self, state: OrchestratorState) -> OrchestratorState:
         """Synthesize final travel plan from all agent data"""
@@ -964,6 +1014,12 @@ Query Type: <query_type>
         await self.redis_client.publish(channel, request)
         
         self.logger.info(f"📡 Dispatched itinerary synthesis request (is_update={is_update})")
+        await self._send_streaming_update(
+        session_id=state["session_id"],
+        agent="itinerary",
+        message="Itinerary agent started synthesizing your plan",
+        update_type="agent_start"
+    )
     
     async def _wait_for_itinerary_response(
         self,
