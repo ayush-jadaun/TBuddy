@@ -181,13 +181,25 @@ async def create_travel_plan(
             logger.info(f"🔄 Continuing session: {session_id}")
         
         logger.info(f"📝 Query: {request.query[:100]}...")
+                # Right after session_id is determined
+        initial_state = {
+            "workflow_status": "queued",
+            "agent_statuses": {},
+            "progress_percent": 0,
+            "is_follow_up": False,
+            "completed_agents": [],
+            "pending_agents": [],
+        }
+        await orchestrator.redis_client.set_state(session_id, initial_state)
+        await asyncio.sleep(0.3)
+
         
         # Create background task for processing
         async def process_workflow():
             """Run workflow in background"""
             try:
                 # Small delay to ensure WebSocket is fully connected
-                await asyncio.sleep(0.3)
+               
                 
                 logger.info(f"🚀 Starting background workflow for {session_id}")
                 
@@ -236,37 +248,14 @@ async def get_plan_status(session_id: str):
     """
     Check if a workflow is complete
     """
+    orchestrator = get_orchestrator()
+    redis_client = orchestrator.redis_client
 
-    
-    try:
-        orchestrator = get_orchestrator()
-        redis_client = orchestrator.redis_client
-        
-        state = await redis_client.get_state(session_id)
-        
-        if not state:
-            raise HTTPException(status_code=404, detail="Session not found")
-        
-        return {
-            "session_id": session_id,
-            "status": state.get("workflow_status"),
-            "is_complete": state.get("workflow_status") == "completed",
-            "agent_statuses": state.get("agent_statuses", {}),
-            "has_results": {
-                "weather": state.get("weather_data") is not None,
-                "events": state.get("events_data") is not None,
-                "maps": state.get("maps_data") is not None,
-                "budget": state.get("budget_data") is not None,
-                "itinerary": state.get("itinerary_data") is not None,
-            }
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get plan status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    
+    state = await redis_client.get_state(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    return state
 
 @router.get("/session/{session_id}/memory", response_model=SessionMemoryResponse)
 async def get_session_memory(session_id: str):
@@ -657,7 +646,7 @@ async def websocket_streaming(websocket: WebSocket, session_id: str):
     
     **Connection:**
     ```javascript
-    const ws = new WebSocket('ws://localhost:8000/api/v1/orchestrator/ws/session_abc123');
+    const ws = new WebSocket('ws://localhost:8000/api/v2/orchestrator/ws/session_abc123');
     ```
     
     **Message Types:**
