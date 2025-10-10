@@ -1,3 +1,6 @@
+"""
+app/main.py - Updated with API Key Authentication
+"""
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -7,13 +10,13 @@ import sys
 from datetime import datetime
 
 from app.config.settings import settings
-# from app.api.routes import router as legacy_router
-# from app.api.orchestrator_routes import router as orchestrator_router
-# from app.api import streaming
 from app.api.orchestrator_routes_v2 import router as orchestrtor_routes_v2
+from app.api.api_routes import router as api_key_router
 from app.models.response import ErrorResponse
+from app.scripts.create_admin_key import router as admin_key_router
 from app.messaging.redis_client import get_redis_client
 from app.api import orchestrator_routes_v2
+from app.auth.middleware import APIKeyAuthMiddleware
 
 # Configure logging
 logging.basicConfig(
@@ -34,6 +37,15 @@ async def lifespan(app: FastAPI):
     logger.info(f"🎪 Starting {settings.app_name} v2.0")
     logger.info(f"Debug mode: {settings.debug}")
     
+    # Initialize Redis
+    try:
+        redis_client = get_redis_client()
+        await redis_client.connect()
+        logger.info("✅ Redis connected")
+    except Exception as e:
+        logger.error(f"❌ Failed to connect to Redis: {e}")
+        raise
+    
     # Initialize orchestrator
     try:
         logger.info("🔧 Initializing Orchestrator Agent...")
@@ -42,11 +54,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ Failed to initialize orchestrator: {e}", exc_info=True)
         logger.warning("⚠️ Orchestrator features disabled")
-        # You might want to raise here if orchestrator is critical
-        # raise
     
     logger.info(f"🚀 API Documentation: http://{settings.host}:{settings.port}/docs")
     logger.info(f"📊 Status endpoint: http://{settings.host}:{settings.port}/status")
+    logger.info(f"🔑 API Key Management: http://{settings.host}:{settings.port}/api/v1/keys")
     
     yield
     
@@ -57,7 +68,13 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Orchestrator shutdown complete")
     except Exception as e:
         logger.error(f"Error during orchestrator shutdown: {e}")
-
+    
+    try:
+        redis_client = get_redis_client()
+        await redis_client.disconnect()
+        logger.info("✅ Redis disconnected")
+    except Exception as e:
+        logger.error(f"Error disconnecting Redis: {e}")
 
 
 # Create FastAPI app
@@ -65,6 +82,13 @@ app = FastAPI(
     title=settings.app_name,
     description="""
     🎪 **Ringmaster Round Table** - AI-Powered Travel Planning System
+    
+    ## 🔐 Authentication
+    All API endpoints (except `/docs`, `/status`, `/health`) require API key authentication.
+    
+    **How to authenticate:**
+    - Include `X-API-Key` header in your requests
+    - Create API keys via `/api/v1/keys` endpoint (requires admin key)
     
     ## Features
     - 🤖 Multi-agent orchestration with Redis pub/sub
@@ -75,10 +99,10 @@ app = FastAPI(
     - 🎭 Event discovery
     - 💰 Budget estimation
     - 📅 Itinerary generation
+    - 🔑 API Key management with rate limiting
     
     ## API Versions
-    - **v1 (Legacy)**: `/api/v1/*` - Direct agent endpoints
-    - **v2 (Orchestrator)**: `/api/v1/plan-trip*` - Orchestrated workflow
+    - **v2 (Orchestrator)**: `/api/v2/orchestrator/*` - Orchestrated workflow with session memory
     """,
     version="2.0.0",
     debug=settings.debug,
@@ -96,11 +120,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add API Key Authentication Middleware
+# Set enforce_auth=False in development if you want to skip auth
+enforce_auth = not settings.debug  # Disable auth in debug mode
+app.add_middleware(APIKeyAuthMiddleware, enforce_auth=enforce_auth)
+
+if not enforce_auth:
+    logger.warning("⚠️ API Key authentication is DISABLED (debug mode)")
+else:
+    logger.info("🔒 API Key authentication is ENABLED")
+
 # Include routers
-# app.include_router(legacy_router, prefix="/api/v1", tags=["Legacy API"])
-# app.include_router(orchestrator_router, tags=["Orchestrator API"])
-# app.include_router(streaming.router, prefix="/api/v1", tags=["Streaming"])
-app.include_router(orchestrtor_routes_v2,  tags=["Orchestrator-v2"])
+app.include_router(orchestrtor_routes_v2, tags=["Orchestrator-v2"])
+app.include_router(api_key_router, tags=["API Key Management"])
+app.include_router(admin_key_router, tags=["Admin Key Router"])
 
 # Exception handlers
 @app.exception_handler(HTTPException)
@@ -136,25 +169,35 @@ async def root():
         "version": "2.0.0",
         "status": "running",
         "timestamp": datetime.now().isoformat(),
+        "authentication": {
+            "enabled": enforce_auth,
+            "method": "API Key (X-API-Key header)",
+            "key_management": "/api/v1/keys"
+        },
         "features": {
-            "orchestrated_planning": "NEW - Parallel agent execution with Redis",
-            "streaming_updates": "NEW - Real-time progress notifications",
-            "legacy_api": "Available for backward compatibility"
+            "orchestrated_planning": "Parallel agent execution with Redis",
+            "streaming_updates": "Real-time progress notifications",
+            "session_memory": "Context-aware follow-up queries",
+            "api_key_management": "Secure API key creation and management"
         },
         "endpoints": {
-            "orchestrator": {
-                "plan_trip": "/api/v1/plan-trip (POST)",
-                "plan_trip_stream": "/api/v1/plan-trip/stream (POST)",
-                "session_status": "/api/v1/session/{session_id} (GET)",
-                "cancel_session": "/api/v1/session/{session_id} (DELETE)"
+            "orchestrator_v2": {
+                "plan": "/api/v2/orchestrator/plan (POST)",
+                "status": "/api/v2/orchestrator/plan/{session_id}/status (GET)",
+                "result": "/api/v2/orchestrator/session/{session_id}/result (GET)",
+                "memory": "/api/v2/orchestrator/session/{session_id}/memory (GET)",
+                "history": "/api/v2/orchestrator/session/{session_id}/history (GET)",
+                "websocket": "ws://host/api/v2/orchestrator/ws/{session_id}"
             },
-            "legacy": {
-                "weather": "/api/v1/weather (POST)",
-                "route": "/api/v1/route (POST)",
-                "events": "/api/v1/events (POST)",
-                "budget": "/api/v1/budget (POST)",
-                "itinerary": "/api/v1/itinerary (POST)",
-                "full_plan": "/api/v1/plan (POST)"
+            "api_keys": {
+                "create": "/api/v1/keys (POST)",
+                "list": "/api/v1/keys (GET)",
+                "get_my_key": "/api/v1/keys/me (GET)",
+                "get_key": "/api/v1/keys/{key_id} (GET)",
+                "update": "/api/v1/keys/{key_id} (PATCH)",
+                "revoke": "/api/v1/keys/{key_id}/revoke (POST)",
+                "delete": "/api/v1/keys/{key_id} (DELETE)",
+                "stats": "/api/v1/keys/stats/usage (GET)"
             }
         },
         "docs": "/docs",
@@ -164,18 +207,16 @@ async def root():
 
 @app.get("/status")
 async def status():
-    """Enhanced status endpoint with orchestrator information"""
+    """Enhanced status endpoint with orchestrator and auth information"""
     
     # Check Redis health
     redis_status = "unknown"
     redis_info = {}
     try:
         redis_client = get_redis_client()
-        await redis_client.connect()
         is_healthy = await redis_client.health_check()
         redis_status = "healthy" if is_healthy else "unhealthy"
         redis_info = await redis_client.get_info()
-        await redis_client.disconnect()
     except Exception as e:
         redis_status = "disconnected"
         redis_info = {"error": str(e)}
@@ -184,6 +225,11 @@ async def status():
         "app_status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "version": "2.0.0",
+        "authentication": {
+            "enabled": enforce_auth,
+            "method": "API Key",
+            "header": "X-API-Key"
+        },
         "orchestrator": {
             "enabled": redis_status == "healthy",
             "redis_status": redis_status,
@@ -257,6 +303,7 @@ if __name__ == "__main__":
     
     logger.info(f"Starting {settings.app_name}...")
     logger.info(f"OpenWeb Ninja API Key configured: {'Yes' if settings.openweb_ninja_api_key else 'No'}")
+    logger.info(f"API Key Authentication: {'Disabled (Debug Mode)' if not enforce_auth else 'Enabled'}")
     
     uvicorn.run(
         "app.main:app",
