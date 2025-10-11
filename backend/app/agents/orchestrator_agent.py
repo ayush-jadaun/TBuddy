@@ -115,7 +115,7 @@ class OrchestratorAgent:
             self._route_after_classification,
             {
                 "parse": "parse_query",
-                "dispatch": "dispatch_agents",  # For simple updates
+                "validate": "validate_params",  # NEW: Skip parsing for simple updates
                 "end": "finalize"
             }
         )
@@ -220,6 +220,7 @@ Previous Context:
 - Has Itinerary: {'Yes' if state.get('itinerary_data') else 'No'}
 - Has Budget Data: {'Yes' if state.get('budget_data') else 'No'}
 """
+            self.logger.info(f"📚 Loaded context: {context_summary.strip()}")
         
         system_prompt = f"""
 You are a travel query classifier. Analyze the user's query and determine the intent.
@@ -230,7 +231,7 @@ Current Query: "{state['user_query']}"
 
 Classify the query as ONE of:
 1. "new_query" - A completely new travel planning request
-2. "budget_update" - Request to change/update budget (keywords: "change budget", "update budget", "different budget", "cheaper", "more expensive")
+2. "budget_update" - Request to change/update budget (keywords: "change budget", "update budget", "different budget", "cheaper", "more expensive", "increase", "decrease")
 3. "itinerary_update" - Request to modify existing itinerary (keywords: "change itinerary", "update plan", "add activity", "remove", "modify")
 4. "dates_update" - Request to change travel dates
 5. "destination_update" - Request to change destination
@@ -242,7 +243,7 @@ IMPORTANT RULES:
 - If previous context exists:
   * Look for update/change keywords
   * Consider if query references existing plan
-  * "change X", "update X", "different X" → likely an update
+  * "change X", "update X", "different X", "increase X", "decrease X" → likely an update
   * Questions about existing data → "simple_question"
 
 Return EXACTLY in this format:
@@ -261,6 +262,7 @@ Reasoning: <brief explanation>
             lines = response.content.strip().split('\n')
             classification = "new_query"
             update_type = None
+            reasoning = ""
             
             for line in lines:
                 if "classification:" in line.lower():
@@ -269,8 +271,12 @@ Reasoning: <brief explanation>
                     update_val = line.split(':', 1)[1].strip().lower()
                     if update_val != "none":
                         update_type = update_val
+                elif "reasoning:" in line.lower():
+                    reasoning = line.split(':', 1)[1].strip()
             
             state["update_type"] = update_type
+            
+            self.logger.info(f"🎯 Classification: {classification} | Update: {update_type} | Reason: {reasoning}")
             
             # Determine query type based on classification
             if not is_follow_up or classification == "new_query":
@@ -279,7 +285,7 @@ Reasoning: <brief explanation>
             elif classification == "budget_update":
                 state["query_type"] = "budget_only"
                 state["agents_to_execute"] = ["budget"]
-                self.logger.info("💰 Budget update detected")
+                self.logger.info("💰 Budget update detected - will use existing context")
             elif classification == "itinerary_update":
                 state["query_type"] = "full_itinerary"
                 state["needs_itinerary"] = True
@@ -316,18 +322,23 @@ Reasoning: <brief explanation>
         if query_type == "simple_question" and is_follow_up:
             return "end"
         
-        # If it's a specific update and we already have context
-        if is_follow_up and update_type in ["budget_update", "itinerary_update","dates_update"]:
-            # Skip parsing, go directly to dispatch
-            return "dispatch"
+        # If it's a specific update and we already have context, skip parsing
+        if is_follow_up and update_type in ["budget_update", "itinerary_update"]:
+            # Skip parsing, go directly to validation and then dispatch
+            self.logger.info(f"⚡ Fast path: {update_type} detected - skipping parse, going to validation")
+            return "validate"
+        
+        # If dates are changing, need to parse the new dates
+        if is_follow_up and update_type == "dates_update":
+            return "parse"
         
         # If destination is not set or it's a new query, need full parsing
         if not state.get("destination") or query_type == "multi_aspect":
             return "parse"
         
-        # For other follow-ups with context, dispatch directly
+        # For other follow-ups with context, go to validation
         if is_follow_up and state.get("destination"):
-            return "dispatch"
+            return "validate"
         
         return "parse"
     
@@ -528,8 +539,21 @@ Query Type: <query_type>
         
         errors = []
         query_type = state.get("query_type", "multi_aspect")
+        update_type = state.get("update_type")
+        is_follow_up = state.get("is_follow_up", False)
         
-        # Different validation rules based on query type
+        # For follow-up updates, validation is more lenient - we use existing context
+        if is_follow_up and update_type in ["budget_update", "itinerary_update"]:
+            # Only validate that we have the minimum context from previous conversation
+            if not state.get("destination"):
+                errors.append("Cannot update: No destination found in conversation history")
+            else:
+                self.logger.info(f"✅ Update validation passed - using context: destination={state['destination']}")
+                state["workflow_status"] = "validated"
+                state["messages"].append(f"Update validated: {update_type}")
+                return state
+        
+        # Standard validation for new queries
         if query_type == "weather_only":
             if not state.get("destination"):
                 errors.append("Destination is required for weather information")
